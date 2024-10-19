@@ -1,3 +1,4 @@
+# October
 import curses
 import time
 
