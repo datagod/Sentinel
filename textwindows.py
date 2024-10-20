@@ -131,6 +131,11 @@ class TextWindow(object):
                 else:
                     self.CurrentRow = 0
 
+            #Draw border and refresh
+            if self.ShowBorder == 'Y':
+               self.window.border()   
+            self.window.refresh()                 
+
         except Exception as ErrorMessage:
             TraceMessage = traceback.format_exc()
             AdditionalInfo = "PrintLine: {}".format(PrintLine)
@@ -303,3 +308,22 @@ def ProcessKeypress(c, pad):
         traceback.print_exc()
         return None
 
+
+
+def initialize_curses(stdscr):
+    # Initialize curses
+    curses.noecho()
+    curses.cbreak()
+    curses.curs_set(0)
+    stdscr.nodelay(1)  # Non-blocking input
+    stdscr.keypad(1)
+
+    # Initialize colors
+    curses.start_color()
+    curses.init_pair(1, curses.COLOR_RED, curses.COLOR_BLACK)
+    curses.init_pair(2, curses.COLOR_GREEN, curses.COLOR_BLACK)
+    curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK)
+    curses.init_pair(4, curses.COLOR_BLUE, curses.COLOR_BLACK)
+    curses.init_pair(5, curses.COLOR_MAGENTA, curses.COLOR_BLACK)
+    curses.init_pair(6, curses.COLOR_CYAN, curses.COLOR_BLACK)
+    curses.init_pair(7, curses.COLOR_WHITE, curses.COLOR_BLACK)
