@@ -92,6 +92,8 @@ class TextWindow(object):
             self.StartColumn = 0
 
     def ScrollPrint(self, PrintLine, Color=2, TimeStamp=False, BoldLine=True):
+        #Make sure PrintLine is a string
+        PrintLine = str(PrintLine)
         current_time = datetime.now().strftime("%H:%M:%S")
 
         if TimeStamp:
