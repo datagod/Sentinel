@@ -85,44 +85,36 @@ def print_raw_packet(packet):
 
 
 
+def get_source_mac(packet):
+    if packet.haslayer(Ether):
+        return packet[Ether].src.upper()
+    elif packet.haslayer(ARP):
+        return packet[ARP].hwsrc.upper()
+    elif packet.haslayer(Dot11):
+        return packet[Dot11].addr2.upper()
+    return None
+
 def get_vendor(mac):
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
     if mac in vendor_cache:
         return vendor_cache[mac]
     try:
         MAC = netaddr.EUI(mac)
         vendor = MAC.oui.registration().org
     except netaddr.core.NotRegisteredError:
-        # Convert MAC to string to handle checking for randomized addresses
-        mac_str = str(MAC).lower()
+        mac_str = str(MAC).upper()
         first_octet = mac_str.split(":")[0]
         
         try:
-            # Attempt to convert the first octet to an integer with base 16
             if int(first_octet, 16) & 0x02:
                 vendor = 'Randomized MAC Address'
             else:
                 vendor = 'Unknown or Not Registered'
         except ValueError:
-            # Handle the case where the first octet is not a valid hex number
             vendor = 'Unknown or Malformed MAC Address'
     
-    # Cache the vendor for future lookups
     vendor_cache[mac] = vendor
     return vendor
-
-
-
-
-
-
-def get_source_mac(packet):
-    if packet.haslayer(Ether):
-        return packet[Ether].src
-    elif packet.haslayer(ARP):
-        return packet[ARP].hwsrc
-    elif packet.haslayer(Dot11):
-        return packet[Dot11].addr2
-    return None
 
 
 
@@ -131,6 +123,7 @@ def packet_callback(packet):
     global PacketTypeDisplay
     global RawDisplay
 
+    RawDisplay.Clear()
     RawDisplay.ScrollPrint(get_raw_packet_string(packet))
 
 
@@ -256,9 +249,8 @@ def main(stdscr):
         RawDisplay.refresh()
         PacketTypeDisplay.referesh()
 
-
         # Increment counter and add delay
-        time.sleep(0.1)
+        #time.sleep(0.1)
        
 
 
