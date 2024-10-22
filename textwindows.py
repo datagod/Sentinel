@@ -43,6 +43,7 @@ from datetime import datetime
 import time
 import sys
 import inspect
+import logging
 
 
 
@@ -52,11 +53,7 @@ class TextWindow(object):
         self.rows = min(rows, max_y - y1)
         self.columns = min(columns, max_x - x1)
 
-            
-
-        if self.rows <= 0 or self.columns <= 0:
-            raise ValueError("Window size exceeds terminal size. Please expand your terminal.")
-
+        #Setup variables
         self.name = name
         self.y1 = y1
         self.x1 = x1
@@ -68,7 +65,15 @@ class TextWindow(object):
             self.window = curses.newwin(self.rows, self.columns, self.y1, self.x1)
         except curses.error:
             raise ValueError("Failed to create a new window. Check if terminal size is sufficient.")
-        
+
+        #Set up logging
+        logging.basicConfig(filename=f'{self.name}.log', level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+
+        #Basic bounds check
+        if self.rows <= 0 or self.columns <= 0:
+            raise ValueError("Window size exceeds terminal size. Please expand your terminal.")
+
+
         self.CurrentRow = 1
         self.StartColumn = 1
         self.DisplayRows = self.rows  # We will modify this later, based on if we show borders or not
@@ -91,9 +96,16 @@ class TextWindow(object):
             self.CurrentRow = 0
             self.StartColumn = 0
 
+
+
+
     def ScrollPrint(self, PrintLine, Color=2, TimeStamp=False, BoldLine=True):
-        #Make sure PrintLine is a string
+        # Debugging: Log the input line details
+        #logging.debug(f"ScrollPrint called with: PrintLine='{PrintLine}', Color={Color}, TimeStamp={TimeStamp}, BoldLine={BoldLine}")
+        
+        # Convert PrintLine to string and handle encoding issues
         PrintLine = str(PrintLine)
+        PrintLine = PrintLine.encode('utf-8', 'replace').decode('utf-8')
         current_time = datetime.now().strftime("%H:%M:%S")
 
         if TimeStamp:
@@ -106,6 +118,14 @@ class TextWindow(object):
         try:
             while len(PrintableString) > 0:
                 PrintableString = PrintableString.ljust(self.DisplayColumns, ' ')
+
+
+                # Make sure we're within bounds, loop around
+                if self.CurrentRow >= self.DisplayRows or self.CurrentRow < 0:
+                    #logging.debug("WARNING: CurrentRow is out of bounds, adjusting row number.\n")
+                    #logging.debug(f"CurrentRow: {self.CurrentRow}, DisplayRows: {self.DisplayRows}, StartColumn: {self.StartColumn}, PrintableString: '{PrintableString}'\n")
+                    self.CurrentRow = 0  # Reset or handle accordingly
+
                 self.window.attron(curses.color_pair(self.PreviousLineColor))
                 self.window.addstr(self.PreviousLineRow, self.StartColumn, self.PreviousLineText)
                 self.window.attroff(curses.color_pair(self.PreviousLineColor))
@@ -133,15 +153,24 @@ class TextWindow(object):
                 else:
                     self.CurrentRow = 0
 
-            #Draw border and refresh
+            # Draw border and refresh
             if self.ShowBorder == 'Y':
-               self.window.border()   
-            self.window.refresh()                 
+                self.window.border()
+            self.window.refresh()
+
+        except curses.error as e:
+          # Log the curses-specific error
+          logging.debug(f"ERROR: Curses error occurred: {e}")
 
         except Exception as ErrorMessage:
-            TraceMessage = traceback.format_exc()
-            AdditionalInfo = "PrintLine: {}".format(PrintLine)
-            self.ErrorHandler(ErrorMessage, TraceMessage, AdditionalInfo)
+          TraceMessage  = traceback.format_exc()
+          AdditionalInfo = f"PrintLine: {PrintLine}, CurrentRow: {self.CurrentRow}, DisplayRows: {self.DisplayRows}"
+
+          # Call ErrorHandler to do the necessary handling and logging in one place
+          self.ErrorHandler(ErrorMessage, TraceMessage, AdditionalInfo)                           
+
+
+
 
     def DisplayTitle(self):
         try:
@@ -174,13 +203,27 @@ class TextWindow(object):
     def refresh(self):
         self.window.refresh()
 
+
+
     def ErrorHandler(self, ErrorMessage, TraceMessage, AdditionalInfo):
-        print("ERROR - An error occurred in TextWindow class.")
+        # Log the error using the logging module
+        logging.debug(f"ERROR: {ErrorMessage}")
+        logging.debug(f"TRACE: {TraceMessage}")
+        if AdditionalInfo:
+            logging.debug(f"Additional Info: {AdditionalInfo}")
+
+        # Also print to console if necessary
+        print("ERROR - An error occurred in TextWindow or TextPad class.")
         print(ErrorMessage)
         print("TRACE")
         print(TraceMessage)
         if AdditionalInfo:
             print("Additional info:", AdditionalInfo)
+
+        # Optional delay to give time for users to read the error (if used interactively)
+        time.sleep(5)
+
+
 
 
 class TextPad(object):
@@ -329,3 +372,6 @@ def initialize_curses(stdscr):
     curses.init_pair(5, curses.COLOR_MAGENTA, curses.COLOR_BLACK)
     curses.init_pair(6, curses.COLOR_CYAN, curses.COLOR_BLACK)
     curses.init_pair(7, curses.COLOR_WHITE, curses.COLOR_BLACK)
+
+
+
