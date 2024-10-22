@@ -1,0 +1,385 @@
+2024-10-22 15:08:43,432 - DEBUG - ERROR: Error parsing packet: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:08:43,432 - DEBUG - TRACE: 
+2024-10-22 15:08:50,577 - DEBUG - ERROR: Error parsing packet: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:08:50,577 - DEBUG - TRACE: 
+2024-10-22 15:29:01,433 - DEBUG - ERROR: Error parsing packet: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:29:01,433 - DEBUG - TRACE: 
+2024-10-22 15:29:18,549 - DEBUG - ERROR: Error parsing packet: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:29:18,549 - DEBUG - TRACE: 
+2024-10-22 15:29:31,625 - DEBUG - ERROR: Error parsing packet: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:29:31,625 - DEBUG - TRACE: 
+2024-10-22 15:29:37,630 - DEBUG - ERROR: Error parsing packet: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:29:37,630 - DEBUG - TRACE: 
+2024-10-22 15:29:43,634 - DEBUG - ERROR: Error parsing packet: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:29:43,634 - DEBUG - TRACE: 
+2024-10-22 15:30:08,810 - DEBUG - ERROR: Error parsing packet: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:30:08,810 - DEBUG - TRACE: 
+2024-10-22 15:30:15,825 - DEBUG - ERROR: Error parsing packet: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:30:15,825 - DEBUG - TRACE: 
+2024-10-22 15:30:23,850 - DEBUG - ERROR: Error parsing packet: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:30:23,850 - DEBUG - TRACE: 
+2024-10-22 15:30:30,861 - DEBUG - ERROR: Error parsing packet: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:30:30,861 - DEBUG - TRACE: 
+2024-10-22 15:30:36,865 - DEBUG - ERROR: Error parsing packet: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:30:36,865 - DEBUG - TRACE: 
+2024-10-22 15:30:44,890 - DEBUG - ERROR: Error parsing packet: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:30:44,890 - DEBUG - TRACE: 
+2024-10-22 15:31:10,078 - DEBUG - ERROR: Error parsing packet: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:31:10,078 - DEBUG - TRACE: 
+2024-10-22 15:33:42,374 - DEBUG - ERROR: Error parsing packet: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:33:42,374 - DEBUG - TRACE: 
+2024-10-22 15:33:56,448 - DEBUG - ERROR: Error parsing packet: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:33:56,448 - DEBUG - TRACE: 
+2024-10-22 15:35:07,437 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:35:07,438 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:35:07,438 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 9c:8e:cd:04:07:dd] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 9c:8e:cd:04:07:dd (RA)
+2024-10-22 15:35:13,444 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:35:13,445 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:35:13,445 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 9c:8e:cd:21:0e:60] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 9c:8e:cd:21:0e:60 (RA)
+2024-10-22 15:35:30,561 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:35:30,561 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:35:30,562 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 9c:8e:cd:21:09:bf] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 9c:8e:cd:21:09:bf (RA)
+2024-10-22 15:36:20,000 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:36:20,001 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:36:20,001 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: c2:12:32:17:b1:b4] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > c2:12:32:17:b1:b4 (RA)
+2024-10-22 15:36:26,008 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:36:26,008 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:36:26,008 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 9c:8e:cd:04:07:dd] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 9c:8e:cd:04:07:dd (RA)
+2024-10-22 15:36:32,015 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:36:32,015 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:36:32,015 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 9c:8e:cd:21:0e:60] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 9c:8e:cd:21:0e:60 (RA)
+2024-10-22 15:36:49,124 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:36:49,124 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:36:49,124 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 9c:8e:cd:21:09:bf] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 9c:8e:cd:21:09:bf (RA)
+2024-10-22 15:36:58,161 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:36:58,161 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:36:58,161 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 9c:8e:cd:21:09:bf] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 9c:8e:cd:21:09:bf (RA)
+2024-10-22 15:37:12,249 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:37:12,249 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:37:12,249 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 2c:71:ff:11:75:0e] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 2c:71:ff:11:75:0e (RA)
+2024-10-22 15:45:48,492 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:45:48,492 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:45:48,492 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 9c:8e:cd:04:07:dd] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 9c:8e:cd:04:07:dd (RA)
+2024-10-22 15:45:54,499 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:45:54,499 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:45:54,499 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 9c:8e:cd:21:0e:60] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 9c:8e:cd:21:0e:60 (RA)
+2024-10-22 15:46:10,601 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:46:10,601 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:46:10,602 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 9c:8e:cd:21:09:bf] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 9c:8e:cd:21:09:bf (RA)
+2024-10-22 15:47:03,050 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:47:28,170 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:47:28,170 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:47:28,170 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 1a:f3:d0:2e:d1:62] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 1a:f3:d0:2e:d1:62 (RA)
+2024-10-22 15:47:50,473 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:47:50,474 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:47:50,474 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 9c:8e:cd:04:07:dd] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 9c:8e:cd:04:07:dd (RA)
+2024-10-22 15:47:56,481 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:47:56,481 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:47:56,481 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 9c:8e:cd:21:0e:60] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 9c:8e:cd:21:0e:60 (RA)
+2024-10-22 15:48:47,946 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:48:47,946 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:48:47,946 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 9c:8e:cd:04:07:dd] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 9c:8e:cd:04:07:dd (RA)
+2024-10-22 15:48:53,952 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:48:53,952 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:48:53,952 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 9c:8e:cd:21:0e:60] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 9c:8e:cd:21:0e:60 (RA)
+2024-10-22 15:49:02,988 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:49:02,989 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:49:02,989 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 9c:8e:cd:04:07:dd] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 9c:8e:cd:04:07:dd (RA)
+2024-10-22 15:49:44,270 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:49:44,271 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:49:44,271 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 98:da:c4:be:5f:d6] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 98:da:c4:be:5f:d6 (RA)
+2024-10-22 15:49:51,286 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:49:51,286 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:49:51,286 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 5a:64:ed:25:d6:9c] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 5a:64:ed:25:d6:9c (RA)
+2024-10-22 15:49:58,302 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:49:58,302 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:49:58,302 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 5a:64:ed:25:d6:9c] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 5a:64:ed:25:d6:9c (RA)
+2024-10-22 15:50:07,348 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:50:07,348 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:50:07,348 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 5a:64:ed:25:d6:9c] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 5a:64:ed:25:d6:9c (RA)
+2024-10-22 15:50:14,369 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:50:14,369 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:50:14,369 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 98:da:c4:be:5f:d6] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 98:da:c4:be:5f:d6 (RA)
+2024-10-22 15:50:29,463 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:50:29,463 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:50:29,463 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 98:da:c4:be:5f:d6] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 98:da:c4:be:5f:d6 (RA)
+2024-10-22 15:50:43,563 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:50:43,563 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:50:43,563 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 00:21:2f:3b:3f:3c] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 00:21:2f:3b:3f:3c (RA)
+2024-10-22 15:51:03,709 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:51:03,709 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:51:03,709 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 9c:8e:cd:04:07:dd] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 9c:8e:cd:04:07:dd (RA)
+2024-10-22 15:51:17,796 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:51:17,796 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:51:17,796 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 5a:64:ed:25:d6:9c] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 5a:64:ed:25:d6:9c (RA)
+2024-10-22 15:51:23,802 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:51:23,802 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:51:23,802 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: da:0b:56:2f:a6:20] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > da:0b:56:2f:a6:20 (RA)
+2024-10-22 15:51:34,861 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:51:34,861 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:51:34,861 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 9c:8e:cd:04:07:dd] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 9c:8e:cd:04:07:dd (RA)
+2024-10-22 15:51:41,878 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:51:41,878 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:51:41,879 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 1a:f3:d0:2e:d1:62] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 1a:f3:d0:2e:d1:62 (RA)
+2024-10-22 15:51:49,906 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:51:49,906 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:51:49,906 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 00:21:2f:3b:3f:3c] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 00:21:2f:3b:3f:3c (RA)
+2024-10-22 15:51:57,933 - DEBUG - ERROR: 'NoneType' object has no attribute 'upper'
+2024-10-22 15:51:57,933 - DEBUG - TRACE: Traceback (most recent call last):
+  File "/home/pi/sentinel/sentinel.py", line 164, in packet_callback
+    vendor = get_vendor(source_mac)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/pi/sentinel/sentinel.py", line 104, in get_vendor
+    mac = mac.upper()  # Ensure MAC is uppercase for consistency
+          ^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'
+
+2024-10-22 15:51:57,933 - DEBUG - Additional Info: Processing Packet: [Source: Unknown          ] [Destination: 9c:8e:cd:21:09:bf] - RadioTap / 802.11 Control Ack 00:00:00:00:00:00 (TA) > 9c:8e:cd:21:09:bf (RA)

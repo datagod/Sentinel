@@ -19,8 +19,8 @@ from scapy.layers.dot11 import Dot11, Dot11Beacon, Dot11ProbeReq, Dot11ProbeResp
 
 
 #Global Variables
-RawDisplay        = None
-PacketTypeDisplay = None
+InfoWindow   = None
+PacketWindow = None
 
 
 #--------------------------------------------------------------------
@@ -101,10 +101,10 @@ def get_source_mac(packet):
 
 
 def get_vendor(mac):
-    mac = mac.upper()  # Ensure MAC is uppercase for consistency
-    if mac in vendor_cache:
-        return vendor_cache[mac]
     try:
+        mac = mac.upper()  # Ensure MAC is uppercase for consistency
+        if mac in vendor_cache:
+          return vendor_cache[mac]
         MAC = netaddr.EUI(mac)
         vendor = MAC.oui.registration().org
     except netaddr.core.NotRegisteredError:
@@ -126,55 +126,73 @@ def get_vendor(mac):
 
 
 def packet_callback(packet):
-    global PacketTypeDisplay
-    global RawDisplay
+    global PacketWindow
+    global InfoWindow
 
-    #RawDisplay.Clear()
-    #RawDisplay.ScrollPrint(get_raw_packet_string(packet))
-    RawDisplay.ScrollPrint('---------------------------------------------------')
+    #InfoWindow.Clear()
+    #InfoWindow.ScrollPrint(get_raw_packet_string(packet))
+
+
+    PacketType = identify_packet_type(packet)
+
+
+
+
+
+    PacketWindow.ScrollPrint('---------------------------------------------------')
+    PacketWindow.ScrollPrint('PacketType: ' + PacketType)
 
     packet_layers = identify_packet_layers(packet)
     for layer in packet_layers:
-      RawDisplay.ScrollPrint(layer)
+      PacketWindow.ScrollPrint('     Layer: ' + layer)
+      PacketWindow.ScrollPrint('')
       
 
 
     #packet_details_string = get_packet_details_as_string(packet)
-    #RawDisplay.ScrollPrint(packet_details_string)
+    #InfoWindow.ScrollPrint(packet_details_string)
     #packet_info = packet.show(dump=True)
-    #RawDisplay.ScrollPrint(packet_info)  # Now the packet details are captured in a string
+    #InfoWindow.ScrollPrint(packet_info)  # Now the packet details are captured in a string
 
-    #RawDisplay.ScrollPrint(analyze_packet(packet))
+    #InfoWindow.ScrollPrint(analyze_packet(packet))
     #time.sleep(2)
     try:
         source_mac = get_source_mac(packet)
-        if not source_mac:
-            PacketTypeDisplay.ScrollPrint(format_packet(packet))
-            return
+        #if not source_mac:
+        #    PacketWindow.ScrollPrint("-- MAC ADDRESS NOT FOUND --")
 
         vendor = get_vendor(source_mac)
 
+        PacketWindow.ScrollPrint('source_mac: ' + source_mac)
+        PacketWindow.ScrollPrint('    vendor: ' + vendor)
+
+
         if packet.haslayer(DHCP):
-            PacketTypeDisplay.ScrollPrint(f"DHCP Packet (likely phone) from MAC: {source_mac} Vendor: {vendor}")
+            PacketWindow.ScrollPrint(f"DHCP Packet (likely phone) from MAC: {source_mac} Vendor: {vendor}")
             #log_packet(source_mac, vendor, "DHCP")
         
         elif packet.haslayer(ARP) and packet[ARP].op == 1:  # ARP request
-            PacketTypeDisplay.ScrollPrint(f"ARP Packet (likely phone) from MAC: {source_mac} Vendor: {vendor}")
+            PacketWindow.ScrollPrint(f"ARP Packet (likely phone) from MAC: {source_mac} Vendor: {vendor}")
             #log_packet(source_mac, vendor, "ARP")
         
         elif packet.haslayer(Dot11ProbeReq):
             ssid = packet[Dot11ProbeReq].info.decode('utf-8', errors='ignore') if packet[Dot11ProbeReq].info else 'Hidden/Unknown SSID'
-            PacketTypeDisplay.ScrollPrint(f"Packet from MAC: {source_mac}, Vendor: {vendor}, SSID: {ssid}")
+            PacketWindow.ScrollPrint(f"Packet from MAC: {source_mac}, Vendor: {vendor}, SSID: {ssid}")
             #log_packet(source_mac, vendor, "ProbeReq", ssid)
     
 
         else:
             # General packet handling
-            PacketTypeDisplay.ScrollPrint(format_packet(packet))
-    except Exception as e:
-        PrintLine = f"Error parsing packet: {e}"
-        RawDisplay.ScrollPrint(PrintLine)
+            PacketWindow.ScrollPrint(format_packet(packet))
+    except Exception as ErrorMessage:
+        TraceMessage   = traceback.format_exc()
+        AdditionalInfo = f"Processing Packet: {format_packet(packet)}"
+        InfoWindow.ScrollPrint(PrintLine='ERROR - ')
+        InfoWindow.ScrollPrint(PrintLine=ErrorMessage)
+        InfoWindow.ErrorHandler(ErrorMessage,TraceMessage,AdditionalInfo)
+        InfoWindow.ScrollPrint(f"Error parsing packet: {ErrorMessage}")
 
+    time.sleep(1)
 
 
 #def log_packet(source_mac, vendor, packet_type, ssid=None):
@@ -195,19 +213,22 @@ def sniff_packets(interface):
     Sniffs packets on the given interface.
     :param interface: Name of the Wi-Fi interface in monitor mode
     """
-    global PacketTypeDisplay
-    global RawDisplay
+    global PacketWindow
+    global InfoWindow
 
 
     try:
-        RawDisplay.ScrollPrint(PrintLine='Sniffing Packets')
+        InfoWindow.ScrollPrint(PrintLine='Sniffing Packets')
         # Sniff packets continuously and send them to packet_callback for processing
         sniff(iface=interface, prn=packet_callback, store=0)
     except KeyboardInterrupt:
-        RawDisplay.ScrollPrint(PrintLine='Stopping...')
-    except Exception as e:
-        RawDisplay.ScrollPrint(PrintLine='ERROR - ')
-        RawDisplay.ScrollPrint(PrintLine=e)
+        InfoWindow.ScrollPrint(PrintLine='Stopping...')
+    except Exception as ErrorMessage:
+        TraceMessage   = traceback.format_exc()
+        AdditionalInfo = f"PrintLine: {PrintLine}, CurrentRow: {self.CurrentRow}, DisplayRows: {self.DisplayRows}"
+        InfoWindow.ScrollPrint(PrintLine='ERROR - ')
+        InfoWindow.ScrollPrint(PrintLine=ErrorMessage)
+        InfoWindow.ErrorHandler(ErrorMessage,TraceMessage,AdditionalInfo)
 
 
 def format_packet(packet):
@@ -238,7 +259,7 @@ def analyze_packet(packet):
     Analyze any packet to determine its type and extract relevant information.
     :param packet: The packet to analyze (Scapy packet object)
     """
-    global RawDisplay
+    global InfoWindow
     try:
         # Initialize a dictionary to store packet details
         packet_details = {
@@ -322,12 +343,12 @@ def analyze_packet(packet):
             packet_details['fields'] = {'Raw Data': packet.summary()}
 
         # Format the packet details for display
-        RawDisplay.ScrollPrint(f"Packet Type: {packet_details['type']}")
+        InfoWindow.ScrollPrint(f"Packet Type: {packet_details['type']}")
         for key, value in packet_details['fields'].items():
-            RawDisplay.ScrollPrint(f"{key}: {value}")
+            InfoWindow.ScrollPrint(f"{key}: {value}")
 
     except Exception as e:
-        RawDisplay.ScrollPrint(f"Error analyzing packet: {e}")
+        InfoWindow.ScrollPrint(f"Error analyzing packet: {e}")
         traceback.print_exc()
 
 
@@ -493,8 +514,8 @@ def get_packet_details_as_string(packet):
 
 
 def main(stdscr):
-    global RawDisplay
-    global PacketTypeDisplay
+    global InfoWindow
+    global PacketWindow
 
     looping = True
 
@@ -507,15 +528,18 @@ def main(stdscr):
     window_width = max_x // 2
 
     #Create display windows
-    PacketTypeDisplay = textwindows.TextWindow('PacketTypeDisplay', rows=max_y - 1, columns=window_width, y1=0, x1=0, ShowBorder='Y', BorderColor=2, TitleColor=3)
-    PacketTypeDisplay.ScrollPrint("Packet Types go here")
+    PacketWindow = textwindows.TextWindow('PacketWindow',title='Packets', rows=max_y - 1, columns=window_width, y1=0, x1=0, ShowBorder='Y', BorderColor=2, TitleColor=3)
+    PacketWindow.DisplayTitle()
     
-    RawDisplay        = textwindows.TextWindow('RawDisplay', rows=max_y - 1, columns=window_width, y1=0, x1=window_width +1, ShowBorder='Y', BorderColor=2, TitleColor=3)
-    RawDisplay.ScrollPrint("Raw Packet Data")
+    InfoWindow   = textwindows.TextWindow('InfoWindow', title='Information', rows=max_y - 1, columns=window_width, y1=0, x1=window_width +1, ShowBorder='Y', BorderColor=2, TitleColor=3)
+    InfoWindow.ScrollPrint("Raw Packet Data")
+    InfoWindow.DisplayTitle()
 
-
-    RawDisplay.refresh()
-    PacketTypeDisplay.refresh()
+    time.sleep(1)
+    InfoWindow.refresh()
+    PacketWindow.refresh()
+    time.sleep(1)
+    InfoWindow.DisplayTitle()
 
 
     # Example usage
@@ -525,8 +549,8 @@ def main(stdscr):
 
 
     sniff_packets(interface)
-    RawDisplay.refresh()
-    PacketTypeDisplay.refresh()
+    InfoWindow.refresh()
+    PacketWindow.refresh()
 
 
   

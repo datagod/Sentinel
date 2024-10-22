@@ -48,19 +48,22 @@ import logging
 
 
 class TextWindow(object):
-    def __init__(self, name, rows, columns, y1, x1, ShowBorder, BorderColor, TitleColor):
+    def __init__(self, name, title, rows, columns, y1, x1, ShowBorder, BorderColor, TitleColor):
         max_y, max_x = curses.LINES - 1, curses.COLS - 1
         self.rows = min(rows, max_y - y1)
         self.columns = min(columns, max_x - x1)
 
         #Setup variables
-        self.name = name
-        self.y1 = y1
-        self.x1 = x1
-        self.y2 = self.y1 + rows
-        self.x2 = self.x1 + rows
+        self.name  = name
+        self.title = title
+        self.y1    = y1
+        self.x1    = x1
+        self.y2    = self.y1 + rows
+        self.x2    = self.x1 + rows
         self.ShowBorder = ShowBorder
         self.BorderColor = BorderColor  # pre-defined text colors 1-7
+        self.TitleColor = TitleColor
+
         try:
             self.window = curses.newwin(self.rows, self.columns, self.y1, self.x1)
         except curses.error:
@@ -72,8 +75,6 @@ class TextWindow(object):
         #Basic bounds check
         if self.rows <= 0 or self.columns <= 0:
             raise ValueError("Window size exceeds terminal size. Please expand your terminal.")
-
-
         self.CurrentRow = 1
         self.StartColumn = 1
         self.DisplayRows = self.rows  # We will modify this later, based on if we show borders or not
@@ -81,8 +82,6 @@ class TextWindow(object):
         self.PreviousLineText = ""
         self.PreviousLineRow = 0
         self.PreviousLineColor = 2
-        self.Title = ""
-        self.TitleColor = TitleColor
 
         if self.ShowBorder == 'Y':
             self.CurrentRow = 1
@@ -103,8 +102,8 @@ class TextWindow(object):
         # Debugging: Log the input line details
         #logging.debug(f"ScrollPrint called with: PrintLine='{PrintLine}', Color={Color}, TimeStamp={TimeStamp}, BoldLine={BoldLine}")
         
-        # Convert PrintLine to string and handle encoding issues
-        PrintLine = str(PrintLine)
+        # Convert PrintLine to string, remove nulls and special characters
+        PrintLine = str(PrintLine).replace('\0', '')  # Remove any embedded null characters
         PrintLine = PrintLine.encode('utf-8', 'replace').decode('utf-8')
         current_time = datetime.now().strftime("%H:%M:%S")
 
@@ -172,9 +171,13 @@ class TextWindow(object):
 
 
 
-    def DisplayTitle(self):
+    def DisplayTitle(self,Title=''):
+        
+        if self.title == '':
+            DisplayTitle = Title
+        
         try:
-            Title = self.Title[0:self.DisplayColumns - 3]
+            DisplayTitle = DisplayTitle[0:self.DisplayColumns - 3]
             self.window.attron(curses.color_pair(self.TitleColor))
             if self.rows > 2:
                 self.window.addstr(0, 2, Title)
@@ -184,7 +187,7 @@ class TextWindow(object):
 
         except Exception as ErrorMessage:
             TraceMessage = traceback.format_exc()
-            AdditionalInfo = "Title: " + Title
+            AdditionalInfo = "Title: " + DisplayTitle
             self.ErrorHandler(ErrorMessage, TraceMessage, AdditionalInfo)
 
     def Clear(self):
