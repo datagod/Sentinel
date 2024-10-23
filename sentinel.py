@@ -97,10 +97,14 @@ def get_source_mac(packet):
         return get_mac_field(packet[Dot1Q].src)  # VLAN Tagged Frame
     elif packet.haslayer(Dot3):
         return get_mac_field(packet[Dot3].src)  # For LLC packets over Ethernet
-    return None
+    return 'No Source MAC'
 
 
 def get_vendor(mac):
+
+    if mac == None:
+        return 'No Vendor'
+
     try:
         mac = mac.upper()  # Ensure MAC is uppercase for consistency
         if mac in vendor_cache:
@@ -158,13 +162,10 @@ def packet_callback(packet):
     #time.sleep(2)
     try:
         source_mac = get_source_mac(packet)
-        #if not source_mac:
-        #    PacketWindow.ScrollPrint("-- MAC ADDRESS NOT FOUND --")
+        vendor     = get_vendor(source_mac)
 
-        vendor = get_vendor(source_mac)
-
-        PacketWindow.ScrollPrint('source_mac: ' + source_mac)
-        PacketWindow.ScrollPrint('    vendor: ' + vendor)
+        PacketWindow.ScrollPrint('source_mac: ' + str(source_mac))
+        PacketWindow.ScrollPrint('    vendor: ' + str(vendor))
 
 
         if packet.haslayer(DHCP):
@@ -430,6 +431,8 @@ def identify_packet_type(packet):
     :param packet: Scapy packet object to be analyzed.
     :return: A string representing the identified packet type.
     """
+
+
     if packet.haslayer(DHCP):
         return "DHCP Packet"
     elif packet.haslayer(ARP):
@@ -466,8 +469,8 @@ def identify_packet_type(packet):
         return "Unknown Packet Type"
 
 # Example usage:
-packet = sniff(count=1)[0]  # Sniff one packet for demonstration purposes
-print(identify_packet_type(packet))
+#packet = sniff(count=1)[0]  # Sniff one packet for demonstration purposes
+#print(identify_packet_type(packet))
 
 
 

@@ -172,8 +172,10 @@ class TextWindow(object):
 
 
     def DisplayTitle(self,Title=''):
-        
-        if self.title == '':
+        #Display the object's title, or a custom one 
+        DisplayTitle = self.title 
+
+        if DisplayTitle == '':
             DisplayTitle = Title
         
         try:
