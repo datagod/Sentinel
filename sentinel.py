@@ -19,8 +19,9 @@ from scapy.layers.dot11 import Dot11, Dot11Beacon, Dot11ProbeReq, Dot11ProbeResp
 
 
 #Global Variables
-InfoWindow   = None
-PacketWindow = None
+InfoWindow    = None
+PacketWindow  = None
+DetailsWindow = None
 
 
 #--------------------------------------------------------------------
@@ -121,7 +122,7 @@ def get_vendor(mac):
             else:
                 vendor = 'Unknown or Not Registered'
         except ValueError:
-            vendor = 'Unknown or Malformed MAC Address'
+            vendor = 'Unknown'
     
     vendor_cache[mac] = vendor
     return vendor
@@ -132,6 +133,7 @@ def get_vendor(mac):
 def packet_callback(packet):
     global PacketWindow
     global InfoWindow
+    global DetailsWindow
 
     #InfoWindow.Clear()
     #InfoWindow.ScrollPrint(get_raw_packet_string(packet))
@@ -140,24 +142,27 @@ def packet_callback(packet):
     PacketType = identify_packet_type(packet)
 
 
-
-
-
     PacketWindow.ScrollPrint('---------------------------------------------------')
     PacketWindow.ScrollPrint('PacketType: ' + PacketType)
 
+
+    InfoWindow.ScrollPrint('---------------------------------------------------')
+    packet_info = packet.show(dump=True)
+    InfoWindow.ScrollPrint(packet_info)  # Now the packet details are captured in a string
+
+    
+    """ I'm only seeing one layer, and it is the same name as the packet.  
     packet_layers = identify_packet_layers(packet)
     for layer in packet_layers:
-      PacketWindow.ScrollPrint('     Layer: ' + layer)
+      count = count + 1
+      PacketWindow.ScrollPrint(f'{count}     Layer: ' + layer)
       PacketWindow.ScrollPrint('')
-      
+    """  
 
 
     #packet_details_string = get_packet_details_as_string(packet)
     #InfoWindow.ScrollPrint(packet_details_string)
-    #packet_info = packet.show(dump=True)
-    #InfoWindow.ScrollPrint(packet_info)  # Now the packet details are captured in a string
-
+    
     #InfoWindow.ScrollPrint(analyze_packet(packet))
     #time.sleep(2)
     try:
@@ -172,19 +177,23 @@ def packet_callback(packet):
             PacketWindow.ScrollPrint(f"DHCP Packet (likely phone) from MAC: {source_mac} Vendor: {vendor}")
             #log_packet(source_mac, vendor, "DHCP")
         
-        elif packet.haslayer(ARP) and packet[ARP].op == 1:  # ARP request
+        if packet.haslayer(ARP) and packet[ARP].op == 1:  # ARP request
             PacketWindow.ScrollPrint(f"ARP Packet (likely phone) from MAC: {source_mac} Vendor: {vendor}")
             #log_packet(source_mac, vendor, "ARP")
         
-        elif packet.haslayer(Dot11ProbeReq):
+        if packet.haslayer(Dot11ProbeReq):
             ssid = packet[Dot11ProbeReq].info.decode('utf-8', errors='ignore') if packet[Dot11ProbeReq].info else 'Hidden/Unknown SSID'
             PacketWindow.ScrollPrint(f"Packet from MAC: {source_mac}, Vendor: {vendor}, SSID: {ssid}")
             #log_packet(source_mac, vendor, "ProbeReq", ssid)
     
 
-        else:
-            # General packet handling
-            PacketWindow.ScrollPrint(format_packet(packet))
+        packet_details = extract_packet_info(packet)
+        DetailsWindow.ScrollPrint('--------------------------------------------')
+        DetailsWindow.ScrollPrint(packet_details)
+        DetailsWindow.ScrollPrint('--------------------------------------------')
+            
+
+
     except Exception as ErrorMessage:
         TraceMessage   = traceback.format_exc()
         AdditionalInfo = f"Processing Packet: {format_packet(packet)}"
@@ -193,7 +202,7 @@ def packet_callback(packet):
         InfoWindow.ErrorHandler(ErrorMessage,TraceMessage,AdditionalInfo)
         InfoWindow.ScrollPrint(f"Error parsing packet: {ErrorMessage}")
 
-    time.sleep(1)
+    time.sleep(2)
 
 
 #def log_packet(source_mac, vendor, packet_type, ssid=None):
@@ -209,6 +218,55 @@ def packet_callback(packet):
 
 
 
+
+def extract_packet_info(packet):
+    """
+    Extracts as much information as possible from a given packet.
+    """
+    packet_details = []
+
+    try:
+        # Get a raw string representation of the packet layers
+        packet_raw_info = packet.show(dump=True)
+        packet_details.append(packet_raw_info)
+
+        # Iterate over each layer in the packet to extract as much info as possible
+        layers = []
+        count = 0
+
+        while True:
+            layer = packet.getlayer(count)
+            if layer is None:
+                break
+            layers.append(layer)
+            count += 1
+
+        # Loop through each layer and extract relevant fields
+        for layer in layers:
+            layer_name = layer.__class__.__name__
+            packet_details.append(f"Layer {count}: {layer_name}")
+            fields = layer.fields
+            for field_name, field_value in fields.items():
+                packet_details.append(f"    {field_name}: {field_value}")
+
+            packet_details.append('')  # Add a blank line between layers
+
+    except Exception as e:
+        packet_details.append(f"Error extracting packet details: {str(e)}")
+
+    return "\n".join(packet_details)
+
+
+
+
+
+
+
+
+
+
+
+
 def sniff_packets(interface):
     """
     Sniffs packets on the given interface.
@@ -216,7 +274,8 @@ def sniff_packets(interface):
     """
     global PacketWindow
     global InfoWindow
-
+    global DetailsWindow
+        
 
     try:
         InfoWindow.ScrollPrint(PrintLine='Sniffing Packets')
@@ -226,10 +285,7 @@ def sniff_packets(interface):
         InfoWindow.ScrollPrint(PrintLine='Stopping...')
     except Exception as ErrorMessage:
         TraceMessage   = traceback.format_exc()
-        AdditionalInfo = f"PrintLine: {PrintLine}, CurrentRow: {self.CurrentRow}, DisplayRows: {self.DisplayRows}"
-        InfoWindow.ScrollPrint(PrintLine='ERROR - ')
-        InfoWindow.ScrollPrint(PrintLine=ErrorMessage)
-        InfoWindow.ErrorHandler(ErrorMessage,TraceMessage,AdditionalInfo)
+        InfoWindow.ErrorHandler(ErrorMessage,TraceMessage,'')
 
 
 def format_packet(packet):
@@ -418,7 +474,7 @@ def identify_packet_layers(packet):
 
     # If no known layers found, append unknown
     if not layers:
-        layers.append("Unknown Packet Type")
+        layers.append("Unknown Layer")
 
     return layers
 
@@ -517,8 +573,9 @@ def get_packet_details_as_string(packet):
 
 
 def main(stdscr):
-    global InfoWindow
     global PacketWindow
+    global InfoWindow
+    global DetailsWindow
 
     looping = True
 
@@ -528,7 +585,7 @@ def main(stdscr):
 
     #Calculate window sizes for two equal windows
     max_y, max_x = stdscr.getmaxyx()
-    window_width = max_x // 2
+    window_width = max_x // 3
 
     #Create display windows
     PacketWindow = textwindows.TextWindow('PacketWindow',title='Packets', rows=max_y - 1, columns=window_width, y1=0, x1=0, ShowBorder='Y', BorderColor=2, TitleColor=3)
@@ -538,11 +595,18 @@ def main(stdscr):
     InfoWindow.ScrollPrint("Raw Packet Data")
     InfoWindow.DisplayTitle()
 
-    time.sleep(1)
-    InfoWindow.refresh()
+    DetailsWindow   = textwindows.TextWindow('DetailsWindow', title='Extra Info', rows=max_y - 1, columns=window_width, y1=0, x1=window_width *2 +1, ShowBorder='Y', BorderColor=2, TitleColor=3)
+    DetailsWindow.ScrollPrint("Details")
+    DetailsWindow.DisplayTitle()
+
+
     PacketWindow.refresh()
-    time.sleep(1)
+    InfoWindow.refresh()
+    DetailsWindow.refresh()
+    
+    PacketWindow.DisplayTitle()
     InfoWindow.DisplayTitle()
+    DetailsWindow.DisplayTitle()
 
 
     # Example usage
@@ -554,6 +618,7 @@ def main(stdscr):
     sniff_packets(interface)
     InfoWindow.refresh()
     PacketWindow.refresh()
+    DetailsWindow.refresh()
 
 
   
