@@ -27,3 +27,8 @@
 2024-10-23 00:57:59,179 - DEBUG - ERROR: Curses error occurred: addwstr() returned ERR
 2024-10-23 00:58:01,196 - DEBUG - ERROR: Curses error occurred: addwstr() returned ERR
 2024-10-23 00:58:01,203 - DEBUG - ERROR: Curses error occurred: addwstr() returned ERR
+2024-10-23 00:58:05,250 - DEBUG - ERROR: Curses error occurred: addwstr() returned ERR
+2024-10-23 00:58:07,260 - DEBUG - ERROR: Curses error occurred: addwstr() returned ERR
+2024-10-23 00:58:09,296 - DEBUG - ERROR: Curses error occurred: addwstr() returned ERR
+2024-10-23 00:58:13,338 - DEBUG - ERROR: Curses error occurred: addwstr() returned ERR
+2024-10-23 00:58:13,348 - DEBUG - ERROR: Curses error occurred: addwstr() returned ERR
