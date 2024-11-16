@@ -264,13 +264,13 @@ def packet_callback(packet):
         
         if packet.haslayer(Dot11ProbeReq):
             ssid = packet[Dot11ProbeReq].info.decode('utf-8', errors='ignore') if packet[Dot11ProbeReq].info else 'Hidden/Unknown SSID'
-            PacketWindow.ScrollPrint(f"Packet from MAC: {source_mac}, Vendor: {vendor}, SSID: {ssid}")
+            PacketWindow.ScrollPrint(f"Probe Request Packet from MAC: {source_mac}, Vendor: {vendor}, SSID: {ssid}")
             #log_packet(source_mac, vendor, "ProbeReq", ssid)
     
 
         if packet.haslayer(Dot11Beacon):
             ssid = packet[Dot11Beacon].info.decode('utf-8', errors='ignore') if packet[Dot11Beacon].info else 'Hidden/Unknown SSID'
-            PacketWindow.ScrollPrint(f"Packet from MAC: {source_mac}, Vendor: {vendor}, SSID: {ssid}")
+            PacketWindow.ScrollPrint(f"BeaCON Packet from MAC: {source_mac}, Vendor: {vendor}, SSID: {ssid}")
             
             
           
