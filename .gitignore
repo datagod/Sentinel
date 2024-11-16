@@ -4,3 +4,4 @@ __pycache__/textwindows.cpython-311.pyc
 start.sh
 packet_log.csv
 *.log
+PacketWindow.log
