@@ -269,9 +269,10 @@ def packet_callback(packet):
     
 
         if packet.haslayer(Dot11Beacon):
-            SSID = packet.getlayer(Dot11Elt).info
-            DeviceType = 'router'
-            RouterCount = RouterCount + 1
+            ssid = packet[Dot11Beacon].info.decode('utf-8', errors='ignore') if packet[Dot11Beacon].info else 'Hidden/Unknown SSID'
+            PacketWindow.ScrollPrint(f"Packet from MAC: {source_mac}, Vendor: {vendor}, SSID: {ssid}")
+            
+            
           
 
         packet_details = extract_packet_info(packet)
