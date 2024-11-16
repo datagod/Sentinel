@@ -2809,3 +2809,13 @@
 2024-11-16 08:20:42,755 - DEBUG - ERROR: Curses error occurred: addwstr() returned ERR
 2024-11-16 08:20:42,763 - DEBUG - ERROR: Curses error occurred: addwstr() returned ERR
 2024-11-16 08:20:44,779 - DEBUG - ERROR: Curses error occurred: addwstr() returned ERR
+2024-11-16 08:20:50,830 - DEBUG - ERROR: Curses error occurred: addwstr() returned ERR
+2024-11-16 08:20:50,837 - DEBUG - ERROR: Curses error occurred: addwstr() returned ERR
+2024-11-16 08:20:52,846 - DEBUG - ERROR: Curses error occurred: addwstr() returned ERR
+2024-11-16 08:20:52,852 - DEBUG - ERROR: Curses error occurred: addwstr() returned ERR
+2024-11-16 08:20:54,860 - DEBUG - ERROR: Curses error occurred: addwstr() returned ERR
+2024-11-16 08:20:56,893 - DEBUG - ERROR: Curses error occurred: addwstr() returned ERR
+2024-11-16 08:20:58,917 - DEBUG - ERROR: Curses error occurred: addwstr() returned ERR
+2024-11-16 08:21:00,930 - DEBUG - ERROR: Curses error occurred: addwstr() returned ERR
+2024-11-16 08:21:00,939 - DEBUG - ERROR: Curses error occurred: addwstr() returned ERR
+2024-11-16 08:21:02,951 - DEBUG - ERROR: Curses error occurred: addwstr() returned ERR
