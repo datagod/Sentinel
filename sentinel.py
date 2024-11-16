@@ -1,3 +1,5 @@
+
+
 # October
 
 import curses
@@ -45,6 +47,85 @@ os.system("figlet 'SENTINEL PASSIVE SURVEILLANCE SYSTEM'")
 
 vendor_cache = {}
 
+
+class PacketInfo:
+    def __init__(self, mac=None, ip=None, signal=None, hardware_type=None, vendor=None, ssid=None, bssid=None,
+                 protocol=None, src_port=None, dst_port=None, timestamp=None):
+        # Specific fields
+        self.mac           = mac  # MAC address of the packet source
+        self.ip            = ip  # IP address of the packet source
+        self.signal        = signal  # Signal strength
+        self.hardware_type = hardware_type  # Hardware type (if ARP packet)
+        self.vendor    = vendor  # MAC vendor info
+        self.ssid      = ssid  # SSID for Wi-Fi packets
+        self.bssid     = bssid  # BSSID for Wi-Fi packets
+        self.protocol  = protocol  # Protocol used in the packet (e.g., TCP, UDP)
+        self.src_port  = src_port  # Source port for TCP/UDP packets
+        self.dst_port  = dst_port  # Destination port for TCP/UDP packets
+        self.timestamp = timestamp  # Timestamp when packet was captured
+
+        # Generic key-value fields for flexibility
+        self.generic_fields = {}
+
+    def update_from_packet(self, packet):
+        """Update the fields based on the given packet."""
+        self.timestamp = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+
+        # Extract MAC Address and Vendor Info
+        if packet.haslayer(Dot11):
+            self.mac = packet.addr2
+            self.bssid = packet.addr3 if hasattr(packet, 'addr3') else None
+            self.ssid = packet.info.decode() if hasattr(packet, 'info') and isinstance(packet.info, bytes) else None
+            self.vendor = self.get_vendor_info(self.mac) if self.mac else None
+
+        # Extract IP Information
+        if packet.haslayer(IP):
+            self.ip = packet[IP].src
+            self.protocol = packet[IP].proto
+
+        # Extract TCP/UDP Ports
+        if packet.haslayer("TCP") or packet.haslayer("UDP"):
+            self.src_port = packet.sport
+            self.dst_port = packet.dport
+
+        # Extract Signal Strength
+        if packet.haslayer(Dot11) and hasattr(packet, 'dBm_AntSignal'):
+            self.signal = packet.dBm_AntSignal
+
+        # Extract Hardware Type (if ARP packet)
+        if packet.haslayer(ARP):
+            self.hardware_type = packet.hwtype
+
+        # Store custom fields from the packet for anything additional
+        self.generic_fields['summary'] = packet.summary()
+
+    @staticmethod
+    def get_vendor_info(mac):
+        # Placeholder: Use mac-vendor-lookup or another database/API for real lookup
+        return "Unknown Vendor"
+
+    def set_generic_field(self, key, value):
+        """Set a generic key-value field for any additional info."""
+        self.generic_fields[key] = value
+
+    def get_generic_field(self, key):
+        """Get the value of a generic key-value field."""
+        return self.generic_fields.get(key, None)
+
+    def __str__(self):
+        """Formatted output for displaying packet information."""
+        return (f"Timestamp: {self.timestamp}\n"
+                f"MAC: {self.mac}\n"
+                f"Vendor: {self.vendor}\n"
+                f"IP: {self.ip}\n"
+                f"Signal: {self.signal}\n"
+                f"Hardware Type: {self.hardware_type}\n"
+                f"SSID: {self.ssid}\n"
+                f"BSSID: {self.bssid}\n"
+                f"Protocol: {self.protocol}\n"
+                f"Source Port: {self.src_port}\n"
+                f"Destination Port: {self.dst_port}\n"
+                f"Generic Fields: {self.generic_fields}\n")
 
 
 
@@ -186,6 +267,12 @@ def packet_callback(packet):
             PacketWindow.ScrollPrint(f"Packet from MAC: {source_mac}, Vendor: {vendor}, SSID: {ssid}")
             #log_packet(source_mac, vendor, "ProbeReq", ssid)
     
+
+        if packet.haslayer(Dot11Beacon):
+            SSID = packet.getlayer(Dot11Elt).info
+            DeviceType = 'router'
+            RouterCount = RouterCount + 1
+          
 
         packet_details = extract_packet_info(packet)
         DetailsWindow.ScrollPrint('--------------------------------------------')
