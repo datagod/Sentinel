@@ -277,7 +277,11 @@ def packet_callback(packet):
 
         packet_details = extract_packet_info(packet)
         DetailsWindow.ScrollPrint('--------------------------------------------')
+        DetailsWindow.ScrollPrint('--------------------------------------------')
+        DetailsWindow.ScrollPrint('--------------------------------------------')
         DetailsWindow.ScrollPrint(packet_details)
+        DetailsWindow.ScrollPrint('--------------------------------------------')
+        DetailsWindow.ScrollPrint('--------------------------------------------')
         DetailsWindow.ScrollPrint('--------------------------------------------')
             
 
