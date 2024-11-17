@@ -182,6 +182,25 @@ def get_source_mac(packet):
     return 'No Source MAC'
 
 
+def get_destination_mac(packet):
+    def get_mac_field(field):
+        return field.upper() if isinstance(field, str) else field
+
+    if packet.haslayer(Ether):
+        return get_mac_field(packet[Ether].dst)
+    elif packet.haslayer(ARP):
+        return get_mac_field(packet[ARP].hwdst)
+    elif packet.haslayer(Dot11):
+        return get_mac_field(packet[Dot11].addr1)
+    elif packet.haslayer(Dot1Q):
+        return get_mac_field(packet[Dot1Q].dst)  # VLAN Tagged Frame
+    elif packet.haslayer(Dot3):
+        return get_mac_field(packet[Dot3].dst)  # For LLC packets over Ethernet
+    return 'No Destination MAC'
+
+
+
+
 def get_vendor(mac):
     if mac is None:
         return 'No Vendor'
@@ -226,105 +245,117 @@ def packet_callback(packet):
     #InfoWindow.ScrollPrint(get_raw_packet_string(packet))
 
 
-    PacketType  = identify_packet_type(packet)
-    mac_details = extract_oui_and_vendor_information(packet)
+    #-------------------------------
+    #-- Get all packet information
+    #-------------------------------
 
-    PacketWindow.ScrollPrint('---------------------------------------------------')
+    try:
+      #Get all the information about the packet before displaying anything
+      PacketType     = identify_packet_type(packet)
+      packet_layers  = identify_packet_layers(packet)
+        
+      #Convert packet to a string for displaying
+      packet_info    = packet.show(dump=True)
+      packet_details = get_packet_details_as_string(packet)
+
+      #There can be more than one source/destination depending on the type of packet
+      #We will focus on WIFI packets for this project
+      mac_details   = extract_oui_and_vendor_information(packet)
+      source_mac    = get_source_mac(packet)
+      dest_mac      = get_destination_mac(packet)
+      source_vendor = get_vendor(source_mac)
+      dest_vendor   = get_vendor(dest_mac)
+      ssid          = extract_ssid(packet)
+
+      #Extract SSID
+      #if packet.haslayer(Dot11ProbeReq):
+      #  ssid = extract_ssid(packet)
+
+      #if packet.haslayer(Dot11Beacon):
+      #  ssid = extract_ssid(packet)
+
+      #PacketWindow.ScrollPrint('source_mac: ' + str(source_mac))
+      #PacketWindow.ScrollPrint('    vendor: ' + str(vendor))
+
+
+      #if packet.haslayer(DHCP):
+      #  PacketWindow.ScrollPrint(f"DHCP Packet (likely phone) from MAC: {source_mac} Vendor: {vendor}")
+        #log_packet(source_mac, vendor, "DHCP")
+    
+      #if packet.haslayer(ARP) and packet[ARP].op == 1:  # ARP request
+      #  PacketWindow.ScrollPrint(f"ARP Packet (likely phone) from MAC: {source_mac} Vendor: {vendor}")
+        #log_packet(source_mac, vendor, "ARP")
+    
+    except Exception as ErrorMessage:
+      TraceMessage   = traceback.format_exc()
+      AdditionalInfo = f"Processing Packet: {format_packet(packet)}"
+      InfoWindow.ScrollPrint(PrintLine='ERROR - ')
+      InfoWindow.ScrollPrint(PrintLine=ErrorMessage)
+      InfoWindow.ErrorHandler(ErrorMessage,TraceMessage,AdditionalInfo)
+      InfoWindow.ScrollPrint(f"Error parsing packet: {ErrorMessage}")
+
     
 
     #ignore routers for now
     #ignore Huawei which is my AMCREST cameras
     if 'router'.upper() not in PacketType.upper():
-      PacketWindow.ScrollPrint('PacketType: ' + PacketType)
+        #-------------------------------
+        #-- Display information
+        #-------------------------------
+        PacketWindow.ScrollPrint('---------------------------------------------------')
+        PacketWindow.ScrollPrint(f'PacketType:    {PacketType}')
+        PacketWindow.ScrollPrint(f'Source MAC:    {source_mac}')
+        PacketWindow.ScrollPrint(f'Source Vendor: {source_vendor}')
+        PacketWindow.ScrollPrint(f'Dest MAC:      {dest_mac}')
+        PacketWindow.ScrollPrint(f'Dest Vendor:   {dest_vendor}')
+        PacketWindow.ScrollPrint(f'SSID:          {ssid}')
+        #PacketWindow.ScrollPrint(f': {}')
+   
+
+
+    
+    #ignore routers for now
+    #ignore Huawei which is my AMCREST cameras
+    if 'router'.upper() not in PacketType.upper():
+      InfoWindow.ScrollPrint('PacketType: ' + PacketType)
 
       # Print the MAC, OUI, and vendor information for each relevant MAC address in the packet
       for mac_type, details in mac_details.items():
         if 'source'.upper() in mac_type.upper():
-          PacketWindow.ScrollPrint(f"Source MAC:    {details['MAC']}" )
-          PacketWindow.ScrollPrint(f"Source Vendor: {details['Vendor']}")
+          InfoWindow.ScrollPrint(f"Source MAC:    {details['MAC']}" )
+          InfoWindow.ScrollPrint(f"Source Vendor: {details['Vendor']}")
         elif 'destination'.upper() in mac_type.upper():
-          PacketWindow.ScrollPrint(f"Dest MAC:      {details['MAC']}" )
-          PacketWindow.ScrollPrint(f"Dest Vendor:   {details['Vendor']}")
+          InfoWindow.ScrollPrint(f"Dest MAC:      {details['MAC']}" )
+          InfoWindow.ScrollPrint(f"Dest Vendor:   {details['Vendor']}")
         else:
-          PacketWindow.ScrollPrint(f"MAC:           {details['MAC']}" )
-          PacketWindow.ScrollPrint(f"Vendor:        {details['Vendor']}")
+          InfoWindow.ScrollPrint(f"MAC:           {details['MAC']}" )
+          InfoWindow.ScrollPrint(f"Vendor:        {details['Vendor']}")
         
 
-      InfoWindow.ScrollPrint('---------------------------------------------------')
-      packet_info = packet.show(dump=True)
       InfoWindow.ScrollPrint(packet_info)  # Now the packet details are captured in a string
-
+      InfoWindow.ScrollPrint('---------------------------------------------------')
     
     
-      #packet_layers = identify_packet_layers(packet)
+    
+      
+      #Display layers
       #for layer in packet_layers:
       #  count = count + 1
-      #  PacketWindow.ScrollPrint(f'{count}     Layer: {layer}')
-      #  PacketWindow.ScrollPrint('')
+      #  DetailsWindow.ScrollPrint(f'{count}     Layer: {layer}')
+      #  DetailsWindow.ScrollPrint('')
       
 
-
-      #packet_details_string = get_packet_details_as_string(packet)
       #InfoWindow.ScrollPrint(packet_details_string)
     
       #InfoWindow.ScrollPrint(analyze_packet(packet))
       #time.sleep(2)
-      try:
-          source_mac = get_source_mac(packet)
-          vendor     = get_vendor(source_mac)
-
-          #PacketWindow.ScrollPrint('source_mac: ' + str(source_mac))
-          #PacketWindow.ScrollPrint('    vendor: ' + str(vendor))
-
-
-          if packet.haslayer(DHCP):
-              PacketWindow.ScrollPrint(f"DHCP Packet (likely phone) from MAC: {source_mac} Vendor: {vendor}")
-              #log_packet(source_mac, vendor, "DHCP")
-        
-          if packet.haslayer(ARP) and packet[ARP].op == 1:  # ARP request
-              PacketWindow.ScrollPrint(f"ARP Packet (likely phone) from MAC: {source_mac} Vendor: {vendor}")
-              #log_packet(source_mac, vendor, "ARP")
-        
-          if packet.haslayer(Dot11ProbeReq):
-              #ssid = packet[Dot11ProbeReq].info.decode('utf-8', errors='ignore') if packet[Dot11ProbeReq].info else 'Hidden/Unknown SSID'
-              ssid = extract_ssid(packet)
-              PacketWindow.ScrollPrint(f"SSID:          {ssid}")
-              #log_packet(source_mac, vendor, "ProbeReq", ssid)
-    
-
-          if packet.haslayer(Dot11Beacon):
-              #ssid = packet[Dot11Beacon].info.decode('utf-8', errors='ignore') if packet[Dot11Beacon].info else 'Hidden/Unknown SSID'
-              ssid = extract_ssid(packet)
-              PacketWindow.ScrollPrint(f"SSID:          {ssid}")
-            
-            
           
 
-          packet_details = extract_packet_info(packet)
-          DetailsWindow.ScrollPrint('--------------------------------------------')
-          DetailsWindow.ScrollPrint('')
-          DetailsWindow.ScrollPrint('')
-          DetailsWindow.ScrollPrint(packet_details)
-          DetailsWindow.ScrollPrint('')
-          DetailsWindow.ScrollPrint('')
-          DetailsWindow.ScrollPrint('--------------------------------------------')
-            
-
-        
-
-      except Exception as ErrorMessage:
-          TraceMessage   = traceback.format_exc()
-          AdditionalInfo = f"Processing Packet: {format_packet(packet)}"
-          InfoWindow.ScrollPrint(PrintLine='ERROR - ')
-          InfoWindow.ScrollPrint(PrintLine=ErrorMessage)
-          InfoWindow.ErrorHandler(ErrorMessage,TraceMessage,AdditionalInfo)
-          InfoWindow.ScrollPrint(f"Error parsing packet: {ErrorMessage}")
-
 
       PacketWindow.ScrollPrint(' ')
       PacketWindow.ScrollPrint(' ')
 
-      time.sleep(0.5)
+      time.sleep(1)
 
 
 #def log_packet(source_mac, vendor, packet_type, ssid=None):
