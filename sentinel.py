@@ -10,6 +10,7 @@ from datetime import datetime  # Import only what's needed for clarity
 import csv
 import subprocess
 import re
+import json
 
 import netaddr
 
@@ -203,12 +204,21 @@ def get_destination_mac(packet):
 
 def get_vendor(mac):
     if mac is None:
-        return 'No Vendor'
+        return 'None'
 
     mac_prefix = mac[:8].upper()  # Only use the first 8 characters (OUI) for lookup
     if mac_prefix in vendor_cache:
         return vendor_cache[mac_prefix]
 
+    # Perform Lookup
+    vendor = lookup_vendor_by_mac(mac, oui_dict)
+
+    # Cache the OUI result
+    vendor_cache[mac_prefix] = vendor
+    return vendor
+
+
+'''
     try:
         MAC = netaddr.EUI(mac)
         vendor = MAC.oui.registration().org
@@ -220,7 +230,7 @@ def get_vendor(mac):
     # Cache the OUI result
     vendor_cache[mac_prefix] = vendor
     return vendor
-
+'''
 
 def extract_ssid(packet):
     #Extracts SSID from a packet if present.
@@ -230,6 +240,20 @@ def extract_ssid(packet):
     except Exception as e:
         return 'Unknown SSID'
     return 'Hidden/Unknown SSID'
+
+
+
+
+def load_oui_dict_from_json(filename):
+    with open(filename, 'r') as json_file:
+        return json.load(json_file)
+
+
+# Example Lookup Function
+def lookup_vendor_by_mac(mac, oui_dict):
+    mac_prefix = mac[:8].upper()  # Extract the OUI prefix from MAC address
+    return oui_dict.get(mac_prefix, ("Unknown", "Unknown or Not Registered"))
+
 
 
 
@@ -266,6 +290,14 @@ def packet_callback(packet):
       source_vendor = get_vendor(source_mac)
       dest_vendor   = get_vendor(dest_mac)
       ssid          = extract_ssid(packet)
+
+      for vendor in vendor_cache:
+        count = count + 1
+        DetailsWindow.ScrollPrint(f"{count} Vendor: {vendor[count]}")
+
+      count = 0
+
+
 
       #Extract SSID
       #if packet.haslayer(Dot11ProbeReq):
@@ -803,6 +835,10 @@ def main(stdscr):
     global DetailsWindow
 
     looping = True
+
+    # Load the `oui_dict` into memory from a JSON file
+    oui_dict = load_oui_dict_from_json("oui_dict.json")
+
 
     # Call the helper function to initialize curses
     textwindows.initialize_curses(stdscr)

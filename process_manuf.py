@@ -1,4 +1,19 @@
 import os
+import json
+
+
+
+
+# Save the dictionary to a file
+def save_oui_dict_to_json(oui_dict, filename):
+    with open(filename, 'w') as json_file:
+        json.dump(oui_dict, json_file, indent=4)
+
+# Load the dictionary from a file
+def load_oui_dict_from_json(filename):
+    with open(filename, 'r') as json_file:
+        return json.load(json_file)
+
 
 def load_manuf_file(filename):
     """
@@ -39,7 +54,7 @@ def load_manuf_file(filename):
 
 # Example usage
 if __name__ == "__main__":
-    manuf_file_path = "manuf"  # Replace with the path to your Wireshark manuf file
+    manuf_file_path = "./sentinel/manuf"  # Replace with the path to your Wireshark manuf file
     oui_dict = load_manuf_file(manuf_file_path)
     
     # Test lookup
@@ -53,3 +68,12 @@ if __name__ == "__main__":
         mac_prefix = mac[:8].upper()  # Extract prefix (first 8 characters)
         vendor_info = oui_dict.get(mac_prefix, ("Unknown", "Unknown or Not Registered"))
         print(f"MAC: {mac}, Vendor Short: {vendor_info[0]}, Vendor Long: {vendor_info[1]}")
+
+
+    # Save to file
+    save_oui_dict_to_json(oui_dict, "oui_dict.json")
+
+    # Load from file
+    loaded_oui_dict = load_oui_dict_from_json("oui_dict.json")
+    print(loaded_oui_dict)
+
