@@ -183,30 +183,35 @@ def get_source_mac(packet):
 
 
 def get_vendor(mac):
-
-    if mac == None:
+    if mac is None:
         return 'No Vendor'
 
+    mac_prefix = mac[:8].upper()  # Only use the first 8 characters (OUI) for lookup
+    if mac_prefix in vendor_cache:
+        return vendor_cache[mac_prefix]
+
     try:
-        mac = mac.upper()  # Ensure MAC is uppercase for consistency
-        if mac in vendor_cache:
-          return vendor_cache[mac]
         MAC = netaddr.EUI(mac)
         vendor = MAC.oui.registration().org
     except netaddr.core.NotRegisteredError:
-        mac_str = str(MAC).upper()
-        first_octet = mac_str.split(":")[0]
-        
-        try:
-            if int(first_octet, 16) & 0x02:
-                vendor = 'Randomized MAC Address'
-            else:
-                vendor = 'Unknown or Not Registered'
-        except ValueError:
-            vendor = 'Unknown'
-    
-    vendor_cache[mac] = vendor
+        vendor = 'Unknown or Not Registered'
+    except ValueError:
+        vendor = 'Unknown'
+
+    # Cache the OUI result
+    vendor_cache[mac_prefix] = vendor
     return vendor
+
+
+def extract_ssid(packet):
+    #Extracts SSID from a packet if present.
+    try:
+        if packet.haslayer(Dot11Elt) and isinstance(packet[Dot11Elt].info, bytes):
+            return packet[Dot11Elt].info.decode('utf-8', errors='ignore')
+    except Exception as e:
+        return 'Unknown SSID'
+    return 'Hidden/Unknown SSID'
+
 
 
 
@@ -215,86 +220,111 @@ def packet_callback(packet):
     global PacketWindow
     global InfoWindow
     global DetailsWindow
+    count = 0
 
     #InfoWindow.Clear()
     #InfoWindow.ScrollPrint(get_raw_packet_string(packet))
 
 
-    PacketType = identify_packet_type(packet)
-
+    PacketType  = identify_packet_type(packet)
+    mac_details = extract_oui_and_vendor_information(packet)
 
     PacketWindow.ScrollPrint('---------------------------------------------------')
-    PacketWindow.ScrollPrint('PacketType: ' + PacketType)
-
-
-    InfoWindow.ScrollPrint('---------------------------------------------------')
-    packet_info = packet.show(dump=True)
-    InfoWindow.ScrollPrint(packet_info)  # Now the packet details are captured in a string
-
     
-    """ I'm only seeing one layer, and it is the same name as the packet.  
-    packet_layers = identify_packet_layers(packet)
-    for layer in packet_layers:
-      count = count + 1
-      PacketWindow.ScrollPrint(f'{count}     Layer: ' + layer)
-      PacketWindow.ScrollPrint('')
-    """  
 
+    #ignore routers for now
+    #ignore Huawei which is my AMCREST cameras
+    if 'router'.upper() not in PacketType.upper():
+      PacketWindow.ScrollPrint('PacketType: ' + PacketType)
 
-    #packet_details_string = get_packet_details_as_string(packet)
-    #InfoWindow.ScrollPrint(packet_details_string)
-    
-    #InfoWindow.ScrollPrint(analyze_packet(packet))
-    #time.sleep(2)
-    try:
-        source_mac = get_source_mac(packet)
-        vendor     = get_vendor(source_mac)
-
-        PacketWindow.ScrollPrint('source_mac: ' + str(source_mac))
-        PacketWindow.ScrollPrint('    vendor: ' + str(vendor))
-
-
-        if packet.haslayer(DHCP):
-            PacketWindow.ScrollPrint(f"DHCP Packet (likely phone) from MAC: {source_mac} Vendor: {vendor}")
-            #log_packet(source_mac, vendor, "DHCP")
+      # Print the MAC, OUI, and vendor information for each relevant MAC address in the packet
+      for mac_type, details in mac_details.items():
+        if 'source'.upper() in mac_type.upper():
+          PacketWindow.ScrollPrint(f"Source MAC:    {details['MAC']}" )
+          PacketWindow.ScrollPrint(f"Source Vendor: {details['Vendor']}")
+        elif 'destination'.upper() in mac_type.upper():
+          PacketWindow.ScrollPrint(f"Dest MAC:      {details['MAC']}" )
+          PacketWindow.ScrollPrint(f"Dest Vendor:   {details['Vendor']}")
+        else:
+          PacketWindow.ScrollPrint(f"MAC:           {details['MAC']}" )
+          PacketWindow.ScrollPrint(f"Vendor:        {details['Vendor']}")
         
-        if packet.haslayer(ARP) and packet[ARP].op == 1:  # ARP request
-            PacketWindow.ScrollPrint(f"ARP Packet (likely phone) from MAC: {source_mac} Vendor: {vendor}")
-            #log_packet(source_mac, vendor, "ARP")
+
+      InfoWindow.ScrollPrint('---------------------------------------------------')
+      packet_info = packet.show(dump=True)
+      InfoWindow.ScrollPrint(packet_info)  # Now the packet details are captured in a string
+
+    
+    
+      #packet_layers = identify_packet_layers(packet)
+      #for layer in packet_layers:
+      #  count = count + 1
+      #  PacketWindow.ScrollPrint(f'{count}     Layer: {layer}')
+      #  PacketWindow.ScrollPrint('')
+      
+
+
+      #packet_details_string = get_packet_details_as_string(packet)
+      #InfoWindow.ScrollPrint(packet_details_string)
+    
+      #InfoWindow.ScrollPrint(analyze_packet(packet))
+      #time.sleep(2)
+      try:
+          source_mac = get_source_mac(packet)
+          vendor     = get_vendor(source_mac)
+
+          #PacketWindow.ScrollPrint('source_mac: ' + str(source_mac))
+          #PacketWindow.ScrollPrint('    vendor: ' + str(vendor))
+
+
+          if packet.haslayer(DHCP):
+              PacketWindow.ScrollPrint(f"DHCP Packet (likely phone) from MAC: {source_mac} Vendor: {vendor}")
+              #log_packet(source_mac, vendor, "DHCP")
         
-        if packet.haslayer(Dot11ProbeReq):
-            ssid = packet[Dot11ProbeReq].info.decode('utf-8', errors='ignore') if packet[Dot11ProbeReq].info else 'Hidden/Unknown SSID'
-            PacketWindow.ScrollPrint(f"Probe Request Packet from MAC: {source_mac}, Vendor: {vendor}, SSID: {ssid}")
-            #log_packet(source_mac, vendor, "ProbeReq", ssid)
+          if packet.haslayer(ARP) and packet[ARP].op == 1:  # ARP request
+              PacketWindow.ScrollPrint(f"ARP Packet (likely phone) from MAC: {source_mac} Vendor: {vendor}")
+              #log_packet(source_mac, vendor, "ARP")
+        
+          if packet.haslayer(Dot11ProbeReq):
+              #ssid = packet[Dot11ProbeReq].info.decode('utf-8', errors='ignore') if packet[Dot11ProbeReq].info else 'Hidden/Unknown SSID'
+              ssid = extract_ssid(packet)
+              PacketWindow.ScrollPrint(f"SSID:          {ssid}")
+              #log_packet(source_mac, vendor, "ProbeReq", ssid)
     
 
-        if packet.haslayer(Dot11Beacon):
-            ssid = packet[Dot11Beacon].info.decode('utf-8', errors='ignore') if packet[Dot11Beacon].info else 'Hidden/Unknown SSID'
-            PacketWindow.ScrollPrint(f"BeaCON Packet from MAC: {source_mac}, Vendor: {vendor}, SSID: {ssid}")
+          if packet.haslayer(Dot11Beacon):
+              #ssid = packet[Dot11Beacon].info.decode('utf-8', errors='ignore') if packet[Dot11Beacon].info else 'Hidden/Unknown SSID'
+              ssid = extract_ssid(packet)
+              PacketWindow.ScrollPrint(f"SSID:          {ssid}")
             
             
           
 
-        packet_details = extract_packet_info(packet)
-        DetailsWindow.ScrollPrint('--------------------------------------------')
-        DetailsWindow.ScrollPrint('--------------------------------------------')
-        DetailsWindow.ScrollPrint('--------------------------------------------')
-        DetailsWindow.ScrollPrint(packet_details)
-        DetailsWindow.ScrollPrint('--------------------------------------------')
-        DetailsWindow.ScrollPrint('--------------------------------------------')
-        DetailsWindow.ScrollPrint('--------------------------------------------')
+          packet_details = extract_packet_info(packet)
+          DetailsWindow.ScrollPrint('--------------------------------------------')
+          DetailsWindow.ScrollPrint('')
+          DetailsWindow.ScrollPrint('')
+          DetailsWindow.ScrollPrint(packet_details)
+          DetailsWindow.ScrollPrint('')
+          DetailsWindow.ScrollPrint('')
+          DetailsWindow.ScrollPrint('--------------------------------------------')
             
 
+        
 
-    except Exception as ErrorMessage:
-        TraceMessage   = traceback.format_exc()
-        AdditionalInfo = f"Processing Packet: {format_packet(packet)}"
-        InfoWindow.ScrollPrint(PrintLine='ERROR - ')
-        InfoWindow.ScrollPrint(PrintLine=ErrorMessage)
-        InfoWindow.ErrorHandler(ErrorMessage,TraceMessage,AdditionalInfo)
-        InfoWindow.ScrollPrint(f"Error parsing packet: {ErrorMessage}")
+      except Exception as ErrorMessage:
+          TraceMessage   = traceback.format_exc()
+          AdditionalInfo = f"Processing Packet: {format_packet(packet)}"
+          InfoWindow.ScrollPrint(PrintLine='ERROR - ')
+          InfoWindow.ScrollPrint(PrintLine=ErrorMessage)
+          InfoWindow.ErrorHandler(ErrorMessage,TraceMessage,AdditionalInfo)
+          InfoWindow.ScrollPrint(f"Error parsing packet: {ErrorMessage}")
 
-    time.sleep(2)
+
+      PacketWindow.ScrollPrint(' ')
+      PacketWindow.ScrollPrint(' ')
+
+      time.sleep(0.5)
 
 
 #def log_packet(source_mac, vendor, packet_type, ssid=None):
@@ -524,6 +554,98 @@ def get_monitor_mode_interface():
 
 
 
+
+def extract_oui_and_vendor_information(packet):
+    """
+    Extracts OUI and vendor information for all possible MAC addresses in the packet.
+    
+    :param packet: Scapy packet object to be analyzed.
+    :return: A dictionary of MAC addresses, OUI, and corresponding vendor information.
+    """
+    mac_info = {}
+
+    # Function to get vendor and OUI information for a given MAC address
+    def get_vendor_and_oui(mac):
+        if mac is None:
+            return 'No MAC Address', 'No Vendor'
+
+        mac_prefix = mac[:8].upper()  # Use the first 8 characters (OUI) for lookup
+        if mac_prefix in vendor_cache:
+            return mac_prefix, vendor_cache[mac_prefix]
+
+        try:
+            MAC = netaddr.EUI(mac)
+            vendor = MAC.oui.registration().org
+        except netaddr.core.NotRegisteredError:
+            vendor = 'Unknown or Not Registered'
+        except ValueError:
+            vendor = 'Unknown'
+
+        # Cache the OUI result
+        vendor_cache[mac_prefix] = vendor
+        return mac_prefix, vendor
+
+    # Extract MAC addresses from various layers and retrieve their OUI and vendor info
+
+    # Ethernet Layer
+    if packet.haslayer(Ether):
+        src_mac = packet[Ether].src
+        dst_mac = packet[Ether].dst
+        src_oui, src_vendor = get_vendor_and_oui(src_mac)
+        dst_oui, dst_vendor = get_vendor_and_oui(dst_mac)
+
+        mac_info['Ethernet Source MAC'] = {'MAC': src_mac, 'OUI': src_oui, 'Vendor': src_vendor}
+        mac_info['Ethernet Destination MAC'] = {'MAC': dst_mac, 'OUI': dst_oui, 'Vendor': dst_vendor}
+
+    # ARP Layer
+    if packet.haslayer(ARP):
+        src_mac = packet[ARP].hwsrc
+        dst_mac = packet[ARP].hwdst
+        src_oui, src_vendor = get_vendor_and_oui(src_mac)
+        dst_oui, dst_vendor = get_vendor_and_oui(dst_mac)
+
+        mac_info['ARP Source MAC'] = {'MAC': src_mac, 'OUI': src_oui, 'Vendor': src_vendor}
+        mac_info['ARP Destination MAC'] = {'MAC': dst_mac, 'OUI': dst_oui, 'Vendor': dst_vendor}
+
+    # 802.11 Wireless Layer
+    if packet.haslayer(Dot11):
+        if hasattr(packet, 'addr1') and packet.addr1:
+            dst_mac = packet.addr1
+            dst_oui, dst_vendor = get_vendor_and_oui(dst_mac)
+            mac_info['WIFI Destination MAC'] = {'MAC': dst_mac, 'OUI': dst_oui, 'Vendor': dst_vendor}
+
+        if hasattr(packet, 'addr2') and packet.addr2:
+            src_mac = packet.addr2
+            src_oui, src_vendor = get_vendor_and_oui(src_mac)
+            mac_info['WIFI Source MAC'] = {'MAC': src_mac, 'OUI': src_oui, 'Vendor': src_vendor}
+
+        if hasattr(packet, 'addr3') and packet.addr3:
+            bssid_mac = packet.addr3
+            bssid_oui, bssid_vendor = get_vendor_and_oui(bssid_mac)
+            mac_info['WIFI BSSID'] = {'MAC': bssid_mac, 'OUI': bssid_oui, 'Vendor': bssid_vendor}
+
+        if hasattr(packet, 'addr4') and packet.addr4:
+            additional_mac = packet.addr4
+            additional_oui, additional_vendor = get_vendor_and_oui(additional_mac)
+            mac_info['WIFI Additional MAC'] = {'MAC': additional_mac, 'OUI': additional_oui, 'Vendor': additional_vendor}
+
+    # VLAN Tagged Frame Layer
+    if packet.haslayer(Dot1Q):
+        src_mac = packet[Dot1Q].src
+        src_oui, src_vendor = get_vendor_and_oui(src_mac)
+        mac_info['VLAN Tagged MAC'] = {'MAC': src_mac, 'OUI': src_oui, 'Vendor': src_vendor}
+
+    # 802.3 Layer (for LLC Ethernet packets)
+    if packet.haslayer(Dot3):
+        src_mac = packet[Dot3].src
+        src_oui, src_vendor = get_vendor_and_oui(src_mac)
+        mac_info['802.3 Source MAC'] = {'MAC': src_mac, 'OUI': src_oui, 'Vendor': src_vendor}
+
+    return mac_info
+
+
+
+
 def identify_packet_layers(packet):
     """
     Identifies all the layers present in the packet and returns a list of protocol names.
@@ -533,42 +655,22 @@ def identify_packet_layers(packet):
     """
     layers = []
 
-    # Check for common layers and append if they exist in the packet
-    if packet.haslayer(DHCP):
-        layers.append("DHCP Packet")
-    if packet.haslayer(ARP):
-        layers.append("ARP Packet")
-    if packet.haslayer(Dot11):
-        if packet.haslayer(Dot11Beacon):
-            layers.append("802.11 Beacon Frame (Router/AP)")
-        elif packet.haslayer(Dot11ProbeReq):
-            layers.append("802.11 Probe Request (Mobile Device)")
-        elif packet.haslayer(Dot11ProbeResp):
-            layers.append("802.11 Probe Response")
-        elif packet.haslayer(Dot11AssoReq):
-            layers.append("802.11 Association Request")
-        elif packet.haslayer(Dot11AssoResp):
-            layers.append("802.11 Association Response")
-        else:
-            layers.append("802.11 Packet")
-    if packet.haslayer(IP):
-        layers.append("IP Packet")
-        if packet.haslayer(TCP):
-            layers.append("TCP Packet")
-        elif packet.haslayer(UDP):
-            layers.append("UDP Packet")
-        elif packet.haslayer(ICMP):
-            layers.append("ICMP Packet")
-    if packet.haslayer(Dot3):
-        layers.append("802.3 Ethernet Packet")
-    if packet.haslayer(Dot1Q):
-        layers.append("802.1Q VLAN Tagged Frame")
+    # Use a while loop to iterate through all layers
+    current_layer = packet
+    while current_layer:
+        # Append the name of the current layer's class to the list
+        layers.append(current_layer.__class__.__name__)
+        # Move to the next layer (payload) in the packet
+        current_layer = current_layer.payload
 
-    # If no known layers found, append unknown
+    # If no known layers found, append "Unknown Layer"
     if not layers:
         layers.append("Unknown Layer")
 
     return layers
+
+
+
 
 
 
