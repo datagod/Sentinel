@@ -11,6 +11,7 @@ import csv
 import subprocess
 import re
 import json
+from collections import Counter
 
 import netaddr
 
@@ -25,7 +26,8 @@ from scapy.layers.dot11 import Dot11, Dot11Beacon, Dot11ProbeReq, Dot11ProbeResp
 InfoWindow    = None
 PacketWindow  = None
 DetailsWindow = None
-
+oui_dict      = None
+vendor_cache  = {}
 
 #--------------------------------------------------------------------
 #   __  __    _    ___ _   _                                       --
@@ -46,7 +48,6 @@ os.system('clear') #clear the terminal (optional)
 os.system("figlet 'SENTINEL PASSIVE SURVEILLANCE SYSTEM'")
 
 
-vendor_cache = {}
 
 
 class PacketInfo:
@@ -200,22 +201,36 @@ def get_destination_mac(packet):
     return 'No Destination MAC'
 
 
+def get_vendor(mac, oui_dict):
+    # Extract the OUI prefix (first 8 characters)
+    mac_prefix = mac[:8].upper().replace('-', ':')  # Normalize delimiter format
+    InfoWindow.ScrollPrint(f"Looking up MAC Prefix: {mac_prefix}")
 
-
-def get_vendor(mac):
-    if mac is None:
-        return 'None'
-
-    mac_prefix = mac[:8].upper()  # Only use the first 8 characters (OUI) for lookup
+    # Check if the OUI prefix is already in the cache
     if mac_prefix in vendor_cache:
+        InfoWindow.ScrollPrint(f"Cache Hit for {mac_prefix}")
         return vendor_cache[mac_prefix]
 
-    # Perform Lookup
-    vendor = lookup_vendor_by_mac(mac, oui_dict)
+    # Lookup in the OUI dictionary
+    if mac_prefix in oui_dict:
+        vendor_info = oui_dict[mac_prefix]
+        InfoWindow.ScrollPrint(f"Vendor Found: {vendor_info}")
+    else:
+        # Fallback: Use netaddr to try and fetch vendor info if not in oui_dict
+        try:
+            MAC = netaddr.EUI(mac)
+            vendor_info = (MAC.oui.registration().org, "No Long Description Available")
+            InfoWindow.ScrollPrint(f"Fallback Vendor Info from netaddr: {vendor_info}")
+        except (netaddr.core.NotRegisteredError, ValueError):
+            vendor_info = ("Unknown", "Unknown or Not Registered")
+            InfoWindow.ScrollPrint(f"Vendor Not Found for {mac_prefix}")
 
-    # Cache the OUI result
-    vendor_cache[mac_prefix] = vendor
-    return vendor
+    # Store the found result in the vendor_cache for future lookups
+    vendor_cache[mac_prefix] = vendor_info
+    return vendor_info
+
+
+
 
 
 '''
@@ -263,7 +278,11 @@ def packet_callback(packet):
     global PacketWindow
     global InfoWindow
     global DetailsWindow
-    count = 0
+    global oui_dict
+    
+    count         = 0
+    source_vendor = ''
+    dest_vendor   = ''
 
     #InfoWindow.Clear()
     #InfoWindow.ScrollPrint(get_raw_packet_string(packet))
@@ -282,21 +301,62 @@ def packet_callback(packet):
       packet_info    = packet.show(dump=True)
       packet_details = get_packet_details_as_string(packet)
 
+
+      
+
       #There can be more than one source/destination depending on the type of packet
       #We will focus on WIFI packets for this project
       mac_details   = extract_oui_and_vendor_information(packet)
+  
+
+      # Iterate through each key-value pair in the mac_info dictionary
+      #InfoWindow.ScrollPrint("-----MAC DETAILS-------------------------------")
+      for mac_type, details in mac_details.items():
+        #InfoWindow.ScrollPrint(f"MAC_TYPE: {mac_type}:")
+       
+
+        # Extract MAC address, OUI, and Vendor information
+        mac = details.get('MAC', 'Unknown MAC Address')
+        oui = details.get('OUI', 'Unknown OUI')
+        vendor = details.get('Vendor', 'Unknown Vendor')
+
+        if "source" in mac_type:
+          source_vendor = vendor
+        if "dest" in mac_type:
+          dest_vendor = vendor
+
+        # Print the extracted information in a readable way
+        #InfoWindow.ScrollPrint(f"    MAC Address: {mac}")
+        #InfoWindow.ScrollPrint(f"    OUI Prefix : {oui}")
+        #InfoWindow.ScrollPrint(f"    Vendor     : {vendor}")
+      #InfoWindow.ScrollPrint("--------------------------------------------")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
       source_mac    = get_source_mac(packet)
       dest_mac      = get_destination_mac(packet)
-      source_vendor = get_vendor(source_mac)
-      dest_vendor   = get_vendor(dest_mac)
+      
+      for mac_type, details in mac_details.items():
+        if 'source'.upper() in mac_type.upper():
+          source_vendor = f"{details['Vendor']}"
+        elif 'destination'.upper() in mac_type.upper():
+          dest_vendor = f"{details['Vendor']}"
+
       ssid          = extract_ssid(packet)
 
-      for vendor in vendor_cache:
-        count = count + 1
-        DetailsWindow.ScrollPrint(f"{count} Vendor: {vendor[count]}")
 
-      count = 0
-
+      #print(f"MAC: {mac}, Vendor Short: {vendor_info[0]}, Vendor Long: {vendor_info[1]}")
 
 
       #Extract SSID
@@ -330,45 +390,20 @@ def packet_callback(packet):
 
     #ignore routers for now
     #ignore Huawei which is my AMCREST cameras
-    if 'router'.upper() not in PacketType.upper():
-        #-------------------------------
-        #-- Display information
-        #-------------------------------
-        PacketWindow.ScrollPrint('---------------------------------------------------')
-        PacketWindow.ScrollPrint(f'PacketType:    {PacketType}')
-        PacketWindow.ScrollPrint(f'Source MAC:    {source_mac}')
-        PacketWindow.ScrollPrint(f'Source Vendor: {source_vendor}')
-        PacketWindow.ScrollPrint(f'Dest MAC:      {dest_mac}')
-        PacketWindow.ScrollPrint(f'Dest Vendor:   {dest_vendor}')
-        PacketWindow.ScrollPrint(f'SSID:          {ssid}')
-        #PacketWindow.ScrollPrint(f': {}')
+    if 'ROUTER' not in PacketType.upper() and 'HUAWEI' not in dest_vendor.upper() and 'HUAWEI' not in source_vendor.upper():
+      #-------------------------------
+      #-- Display information
+      #-------------------------------
+      PacketWindow.ScrollPrint('---------------------------------------------------')
+      PacketWindow.ScrollPrint(f'PacketType:    {PacketType}')
+      PacketWindow.ScrollPrint(f'Source MAC:    {source_mac}')
+      PacketWindow.ScrollPrint(f'Source Vendor: {source_vendor}')
+      PacketWindow.ScrollPrint(f'Dest MAC:      {dest_mac}')
+      PacketWindow.ScrollPrint(f'Dest Vendor:   {dest_vendor}')
+      PacketWindow.ScrollPrint(f'SSID:          {ssid}')
+      #PacketWindow.ScrollPrint(f': {}')
    
-
-
-    
-    #ignore routers for now
-    #ignore Huawei which is my AMCREST cameras
-    if 'router'.upper() not in PacketType.upper():
-      InfoWindow.ScrollPrint('PacketType: ' + PacketType)
-
-      # Print the MAC, OUI, and vendor information for each relevant MAC address in the packet
-      for mac_type, details in mac_details.items():
-        if 'source'.upper() in mac_type.upper():
-          InfoWindow.ScrollPrint(f"Source MAC:    {details['MAC']}" )
-          InfoWindow.ScrollPrint(f"Source Vendor: {details['Vendor']}")
-        elif 'destination'.upper() in mac_type.upper():
-          InfoWindow.ScrollPrint(f"Dest MAC:      {details['MAC']}" )
-          InfoWindow.ScrollPrint(f"Dest Vendor:   {details['Vendor']}")
-        else:
-          InfoWindow.ScrollPrint(f"MAC:           {details['MAC']}" )
-          InfoWindow.ScrollPrint(f"Vendor:        {details['Vendor']}")
-        
-
-      InfoWindow.ScrollPrint(packet_info)  # Now the packet details are captured in a string
-      InfoWindow.ScrollPrint('---------------------------------------------------')
-    
-    
-    
+   
       
       #Display layers
       #for layer in packet_layers:
@@ -382,12 +417,10 @@ def packet_callback(packet):
       #InfoWindow.ScrollPrint(analyze_packet(packet))
       #time.sleep(2)
           
-
-
       PacketWindow.ScrollPrint(' ')
       PacketWindow.ScrollPrint(' ')
 
-      time.sleep(1)
+      time.sleep(0.25)
 
 
 #def log_packet(source_mac, vendor, packet_type, ssid=None):
@@ -585,9 +618,9 @@ def analyze_packet(packet):
             packet_details['fields'] = {'Raw Data': packet.summary()}
 
         # Format the packet details for display
-        InfoWindow.ScrollPrint(f"Packet Type: {packet_details['type']}")
-        for key, value in packet_details['fields'].items():
-            InfoWindow.ScrollPrint(f"{key}: {value}")
+        #InfoWindow.ScrollPrint(f"Packet Type: {packet_details['type']}")
+        #for key, value in packet_details['fields'].items():
+        #    InfoWindow.ScrollPrint(f"{key}: {value}")
 
     except Exception as e:
         InfoWindow.ScrollPrint(f"Error analyzing packet: {e}")
@@ -632,11 +665,20 @@ def extract_oui_and_vendor_information(packet):
         if mac is None:
             return 'No MAC Address', 'No Vendor'
 
-        mac_prefix = mac[:8].upper()  # Use the first 8 characters (OUI) for lookup
+        # Normalize MAC format to ensure consistent lookups
+        mac_prefix = mac[:8].upper().replace('-', ':')
+        
+        # Log the OUI lookup attempt for debugging
+        #InfoWindow.ScrollPrint(f"DEBUG: Extracting OUI for MAC Prefix: {mac_prefix}")
+
+        # Check if vendor info is already in cache
         if mac_prefix in vendor_cache:
             return mac_prefix, vendor_cache[mac_prefix]
 
+        # If not in the cache, use netaddr or default
         try:
+            InfoWindow.ScrollPrint(f"DEBUG: OUI not found in cache: {mac_prefix}")
+
             MAC = netaddr.EUI(mac)
             vendor = MAC.oui.registration().org
         except netaddr.core.NotRegisteredError:
@@ -644,8 +686,9 @@ def extract_oui_and_vendor_information(packet):
         except ValueError:
             vendor = 'Unknown'
 
-        # Cache the OUI result
+        # Cache the OUI result for future lookups
         vendor_cache[mac_prefix] = vendor
+
         return mac_prefix, vendor
 
     # Extract MAC addresses from various layers and retrieve their OUI and vendor info
@@ -654,39 +697,45 @@ def extract_oui_and_vendor_information(packet):
     if packet.haslayer(Ether):
         src_mac = packet[Ether].src
         dst_mac = packet[Ether].dst
-        src_oui, src_vendor = get_vendor_and_oui(src_mac)
-        dst_oui, dst_vendor = get_vendor_and_oui(dst_mac)
-
-        mac_info['Ethernet Source MAC'] = {'MAC': src_mac, 'OUI': src_oui, 'Vendor': src_vendor}
-        mac_info['Ethernet Destination MAC'] = {'MAC': dst_mac, 'OUI': dst_oui, 'Vendor': dst_vendor}
+        if src_mac:
+            src_oui, src_vendor = get_vendor_and_oui(src_mac)
+            mac_info['Ethernet Source MAC'] = {'MAC': src_mac, 'OUI': src_oui, 'Vendor': src_vendor}
+        if dst_mac:
+            dst_oui, dst_vendor = get_vendor_and_oui(dst_mac)
+            mac_info['Ethernet Destination MAC'] = {'MAC': dst_mac, 'OUI': dst_oui, 'Vendor': dst_vendor}
 
     # ARP Layer
     if packet.haslayer(ARP):
         src_mac = packet[ARP].hwsrc
         dst_mac = packet[ARP].hwdst
-        src_oui, src_vendor = get_vendor_and_oui(src_mac)
-        dst_oui, dst_vendor = get_vendor_and_oui(dst_mac)
-
-        mac_info['ARP Source MAC'] = {'MAC': src_mac, 'OUI': src_oui, 'Vendor': src_vendor}
-        mac_info['ARP Destination MAC'] = {'MAC': dst_mac, 'OUI': dst_oui, 'Vendor': dst_vendor}
+        if src_mac:
+            src_oui, src_vendor = get_vendor_and_oui(src_mac)
+            mac_info['ARP Source MAC'] = {'MAC': src_mac, 'OUI': src_oui, 'Vendor': src_vendor}
+        if dst_mac:
+            dst_oui, dst_vendor = get_vendor_and_oui(dst_mac)
+            mac_info['ARP Destination MAC'] = {'MAC': dst_mac, 'OUI': dst_oui, 'Vendor': dst_vendor}
 
     # 802.11 Wireless Layer
     if packet.haslayer(Dot11):
+        # Destination MAC
         if hasattr(packet, 'addr1') and packet.addr1:
             dst_mac = packet.addr1
             dst_oui, dst_vendor = get_vendor_and_oui(dst_mac)
             mac_info['WIFI Destination MAC'] = {'MAC': dst_mac, 'OUI': dst_oui, 'Vendor': dst_vendor}
 
+        # Source MAC
         if hasattr(packet, 'addr2') and packet.addr2:
             src_mac = packet.addr2
             src_oui, src_vendor = get_vendor_and_oui(src_mac)
             mac_info['WIFI Source MAC'] = {'MAC': src_mac, 'OUI': src_oui, 'Vendor': src_vendor}
 
+        # BSSID
         if hasattr(packet, 'addr3') and packet.addr3:
             bssid_mac = packet.addr3
             bssid_oui, bssid_vendor = get_vendor_and_oui(bssid_mac)
             mac_info['WIFI BSSID'] = {'MAC': bssid_mac, 'OUI': bssid_oui, 'Vendor': bssid_vendor}
 
+        # Additional MAC Address (usually used in WDS frames)
         if hasattr(packet, 'addr4') and packet.addr4:
             additional_mac = packet.addr4
             additional_oui, additional_vendor = get_vendor_and_oui(additional_mac)
@@ -695,18 +744,18 @@ def extract_oui_and_vendor_information(packet):
     # VLAN Tagged Frame Layer
     if packet.haslayer(Dot1Q):
         src_mac = packet[Dot1Q].src
-        src_oui, src_vendor = get_vendor_and_oui(src_mac)
-        mac_info['VLAN Tagged MAC'] = {'MAC': src_mac, 'OUI': src_oui, 'Vendor': src_vendor}
+        if src_mac:
+            src_oui, src_vendor = get_vendor_and_oui(src_mac)
+            mac_info['VLAN Tagged MAC'] = {'MAC': src_mac, 'OUI': src_oui, 'Vendor': src_vendor}
 
     # 802.3 Layer (for LLC Ethernet packets)
     if packet.haslayer(Dot3):
         src_mac = packet[Dot3].src
-        src_oui, src_vendor = get_vendor_and_oui(src_mac)
-        mac_info['802.3 Source MAC'] = {'MAC': src_mac, 'OUI': src_oui, 'Vendor': src_vendor}
+        if src_mac:
+            src_oui, src_vendor = get_vendor_and_oui(src_mac)
+            mac_info['802.3 Source MAC'] = {'MAC': src_mac, 'OUI': src_oui, 'Vendor': src_vendor}
 
     return mac_info
-
-
 
 
 def identify_packet_layers(packet):
@@ -824,6 +873,38 @@ def get_packet_details_as_string(packet):
 
 
 
+# Function to print statistics about the OUI dictionary
+def print_oui_stats(oui_dict,InfoWindow):
+
+
+    InfoWindow.ScrollPrint("=== OUI Dictionary Statistics ===")
+    
+    # Total number of entries
+    total_entries = len(oui_dict)
+    InfoWindow.ScrollPrint(f"Total Number of OUI Entries: {total_entries}")
+
+    # Count occurrences of vendors in the OUI dictionary
+    vendor_counter = Counter()
+    for oui, (short_desc, long_desc) in oui_dict.items():
+        vendor_counter[short_desc] += 1
+
+    # Number of unique vendors
+    total_unique_vendors = len(vendor_counter)
+    InfoWindow.ScrollPrint(f"Total Number of Unique Vendors: {total_unique_vendors}")
+
+    # Vendors with multiple OUIs
+    vendors_with_multiple_ouis = {vendor: count for vendor, count in vendor_counter.items() if count > 1}
+    InfoWindow.ScrollPrint(f"Vendors with Multiple OUIs: {len(vendors_with_multiple_ouis)}")
+
+    # Print top vendors with the most OUI entries
+    InfoWindow.ScrollPrint("\nTop 25 Vendors with the Most OUI Entries:")
+    for vendor, count in vendor_counter.most_common(25):
+        InfoWindow.ScrollPrint(f"{vendor}: {count} entries")
+
+
+
+
+
 ###########################################################
 #  MAIN PROCESSING                                        #
 ###########################################################
@@ -833,12 +914,9 @@ def main(stdscr):
     global PacketWindow
     global InfoWindow
     global DetailsWindow
+    global oui_dict
 
     looping = True
-
-    # Load the `oui_dict` into memory from a JSON file
-    oui_dict = load_oui_dict_from_json("oui_dict.json")
-
 
     # Call the helper function to initialize curses
     textwindows.initialize_curses(stdscr)
@@ -868,6 +946,10 @@ def main(stdscr):
     PacketWindow.DisplayTitle()
     InfoWindow.DisplayTitle()
     DetailsWindow.DisplayTitle()
+
+    # Load the `oui_dict` into memory from a JSON file
+    oui_dict = load_oui_dict_from_json("oui_dict.json")
+    print_oui_stats(oui_dict,InfoWindow)
 
 
     # Example usage
