@@ -30,6 +30,7 @@ DetailsWindow = None
 oui_dict      = None
 vendor_cache  = {}
 current_channel_info = {"channel": None, "band": None, "frequency": None}
+write_lock           = threading.Lock()
 
 
 #--------------------------------------------------------------------
@@ -712,25 +713,19 @@ def extract_oui_and_vendor_information(packet):
     """
     mac_info = {}
 
-    # Function to get vendor and OUI information for a given MAC address
+
     def get_vendor_and_oui(mac):
+        
+
         if mac is None:
             return 'No MAC Address', 'No Vendor'
 
-        # Normalize MAC format to ensure consistent lookups
         mac_prefix = mac[:8].upper().replace('-', ':')
         
-        # Log the OUI lookup attempt for debugging
-        #InfoWindow.ScrollPrint(f"DEBUG: Extracting OUI for MAC Prefix: {mac_prefix}")
-
-        # Check if vendor info is already in cache
         if mac_prefix in vendor_cache:
             return mac_prefix, vendor_cache[mac_prefix]
 
-        # If not in the cache, use netaddr or default
         try:
-            #InfoWindow.ScrollPrint(f"DEBUG: OUI not found in cache: {mac_prefix}")
-
             MAC = netaddr.EUI(mac)
             vendor = MAC.oui.registration().org
         except netaddr.core.NotRegisteredError:
@@ -738,11 +733,22 @@ def extract_oui_and_vendor_information(packet):
         except ValueError:
             vendor = 'Unknown'
 
-        # Cache the OUI result for future lookups
         vendor_cache[mac_prefix] = vendor
-        InfoWindow.ScrollPrint(f"DEBUG: {mac_prefix} - {vendor}")
+
+        if mac_prefix not in oui_dict:
+            oui_dict[mac_prefix] = (vendor, "No Long Description Available")
+
+            # Use a lock to prevent concurrent write access
+            with write_lock:
+                with open("oui_dict.json", 'w') as json_file:
+                    json.dump(oui_dict, json_file, indent=4)
+                    InfoWindow.ScrollPrint("Updating OUI master file")
+
+            InfoWindow.ScrollPrint(f"Added new OUI to master list: {mac_prefix} - {vendor}", Color=5)
 
         return mac_prefix, vendor
+
+
 
     # Extract MAC addresses from various layers and retrieve their OUI and vendor info
 
@@ -971,7 +977,18 @@ def channel_hopper(interface, hop_interval):
 
     # Define available channels for 2.4 GHz and 5 GHz
     channels_24ghz = list(range(1, 14))  # Channels 1 to 13 for 2.4 GHz
-    channels_5ghz = [36, 40, 44, 48, 149, 153, 157, 161, 165]  # Common 5 GHz channels
+    
+    #channels_5ghz = [36, 40, 44, 48, 149, 153, 157, 161, 165]  # Common 5 GHz channels
+    
+    #Master list 5GHz channels
+    channels_5ghz = [
+      36, 38, 40, 42, 44, 46, 48, 
+      52, 54, 56, 58, 60, 62, 64, 
+      100, 102, 104, 106, 108, 110, 112, 114, 116, 118, 120, 122, 124, 126, 128, 
+      132, 134, 136, 138, 140, 142, 144,
+      149, 151, 153, 155, 157, 159, 161, 163, 165, 167, 169, 171, 173
+]  # Complete 5 GHz Wi-Fi channels
+
 
     # Combine all channels into one list
     all_channels = channels_24ghz + channels_5ghz
