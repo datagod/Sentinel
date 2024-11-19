@@ -294,7 +294,7 @@ def packet_callback(packet):
     dest_vendor   = ''
     channel       = 0
     band          = 0
-
+    timestamp     = datetime.now()
     #InfoWindow.Clear()
     #InfoWindow.ScrollPrint(get_raw_packet_string(packet))
 
@@ -405,6 +405,7 @@ def packet_callback(packet):
       #-- Display information
       #-------------------------------
       PacketWindow.ScrollPrint('---------------------------------------------------')
+      PacketWindow.ScrollPrint(f'CaptureDate:   {timestamp}')
       PacketWindow.ScrollPrint(f'PacketType:    {PacketType}')
       PacketWindow.ScrollPrint(f'Source MAC:    {source_mac}')
       PacketWindow.ScrollPrint(f'Source Vendor: {source_vendor}')
