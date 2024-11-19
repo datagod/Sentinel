@@ -14,6 +14,7 @@ import json
 from collections import Counter
 
 import netaddr
+import threading
 
 from scapy.all import *
 from scapy.layers.l2 import Dot3, Dot1Q, Ether, ARP
@@ -28,6 +29,8 @@ PacketWindow  = None
 DetailsWindow = None
 oui_dict      = None
 vendor_cache  = {}
+current_channel_info = {"channel": None, "band": None, "frequency": None}
+
 
 #--------------------------------------------------------------------
 #   __  __    _    ___ _   _                                       --
@@ -279,10 +282,13 @@ def packet_callback(packet):
     global InfoWindow
     global DetailsWindow
     global oui_dict
-    
+    global current_channel_info
+
     count         = 0
     source_vendor = ''
     dest_vendor   = ''
+    channel       = 0
+    band          = 0
 
     #InfoWindow.Clear()
     #InfoWindow.ScrollPrint(get_raw_packet_string(packet))
@@ -353,7 +359,10 @@ def packet_callback(packet):
         elif 'destination'.upper() in mac_type.upper():
           dest_vendor = f"{details['Vendor']}"
 
-      ssid          = extract_ssid(packet)
+      ssid    = extract_ssid(packet)
+      channel = current_channel_info['channel']
+      band    = current_channel_info['band']
+            
 
 
       #print(f"MAC: {mac}, Vendor Short: {vendor_info[0]}, Vendor Long: {vendor_info[1]}")
@@ -401,9 +410,11 @@ def packet_callback(packet):
       PacketWindow.ScrollPrint(f'Dest MAC:      {dest_mac}')
       PacketWindow.ScrollPrint(f'Dest Vendor:   {dest_vendor}')
       PacketWindow.ScrollPrint(f'SSID:          {ssid}')
+      PacketWindow.ScrollPrint(f'Band:          {band}')
+      PacketWindow.ScrollPrint(f'channel:       {channel}')
       #PacketWindow.ScrollPrint(f': {}')
-   
-   
+ 
+
       
       #Display layers
       #for layer in packet_layers:
@@ -423,11 +434,50 @@ def packet_callback(packet):
       time.sleep(0.25)
 
 
+
+
+
+
+
+# Function to set the channel on a given Wi-Fi interface
+def set_channel(interface, channel):
+    global InfoWindow
+    """
+    Set the Wi-Fi interface to a specific channel.
+    :param interface: Name of the Wi-Fi interface in monitor mode (e.g., wlan0mon)
+    :param channel: Wi-Fi channel to switch to (e.g., 1-13 for 2.4 GHz or 36, 40, 44, etc. for 5 GHz)
+    :return: None
+    """
+    try:
+        result = subprocess.run(['sudo', 'iw', 'dev', interface, 'set', 'channel', str(channel)],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if result.returncode == 0:
+            return
+            #InfoWindow.ScrollPrint(f"Channel: {channel}",Color=6)
+        else:
+            InfoWindow.ScrollPrint(f"Failed to set channel. Error: {result.stderr}",Color=6)
+    except Exception as e:
+        InfoWindow.ScrollPrint(f"Error occurred while trying to set channel: {str(e)}",Color=6)
+
+    
+
+
 #def log_packet(source_mac, vendor, packet_type, ssid=None):
 #    with open("packet_log.csv", "a") as log_file:
 #        log_writer = csv.writer(log_file)
 #        # Use datetime.now() from datetime module to get current timestamp
 #        log_writer.writerow([datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), source_mac, vendor, packet_type, ssid])
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -630,6 +680,7 @@ def analyze_packet(packet):
 
 
 def get_monitor_mode_interface():
+    global InfoWindow
     try:
         # Run 'iw dev' to get information about wireless interfaces
         result = subprocess.run(['iw', 'dev'], stdout=subprocess.PIPE, text=True)
@@ -641,6 +692,7 @@ def get_monitor_mode_interface():
         # Check which interface is in monitor mode
         for iface, mode in interfaces:
             if mode == "monitor":
+                InfoWindow.ScrollPrint(f"Monitoring interface: {iface}")
                 return iface
 
     except subprocess.CalledProcessError as e:
@@ -677,7 +729,7 @@ def extract_oui_and_vendor_information(packet):
 
         # If not in the cache, use netaddr or default
         try:
-            InfoWindow.ScrollPrint(f"DEBUG: OUI not found in cache: {mac_prefix}")
+            #InfoWindow.ScrollPrint(f"DEBUG: OUI not found in cache: {mac_prefix}")
 
             MAC = netaddr.EUI(mac)
             vendor = MAC.oui.registration().org
@@ -688,6 +740,7 @@ def extract_oui_and_vendor_information(packet):
 
         # Cache the OUI result for future lookups
         vendor_cache[mac_prefix] = vendor
+        InfoWindow.ScrollPrint(f"DEBUG: {mac_prefix} - {vendor}")
 
         return mac_prefix, vendor
 
@@ -905,11 +958,64 @@ def print_oui_stats(oui_dict,InfoWindow):
 
 
 
+
+
 ###########################################################
 #  MAIN PROCESSING                                        #
 ###########################################################
 
 
+
+def channel_hopper(interface, hop_interval):
+    global current_channel_info
+
+    # Define available channels for 2.4 GHz and 5 GHz
+    channels_24ghz = list(range(1, 14))  # Channels 1 to 13 for 2.4 GHz
+    channels_5ghz = [36, 40, 44, 48, 149, 153, 157, 161, 165]  # Common 5 GHz channels
+
+    # Combine all channels into one list
+    all_channels = channels_24ghz + channels_5ghz
+    channel_index = 0
+
+    try:
+        while True:
+            # Set the interface to the current channel
+            current_channel = all_channels[channel_index]
+            set_channel(interface, current_channel)
+
+            # Update the global channel information
+            if current_channel in channels_24ghz:
+                current_channel_info = {
+                    "channel": current_channel,
+                    "band": "2.4 GHz",
+                    "frequency": 2407 + current_channel * 5
+                }
+            elif current_channel in channels_5ghz:
+                current_channel_info = {
+                    "channel": current_channel,
+                    "band": "5 GHz",
+                    "frequency": 5000 + (current_channel * 5)
+                }
+
+            InfoWindow.ScrollPrint(f"{current_channel_info['band']} band - Channel {current_channel} - Freq. {current_channel_info['frequency']} MHz",Color=5)
+
+
+            # Move to the next channel (wrap around if at the end)
+            channel_index = (channel_index + 1) % len(all_channels)
+
+            # Wait for the specified hop interval before switching channels again
+            time.sleep(hop_interval)
+
+    except KeyboardInterrupt:
+        print("Channel hopping stopped by user.")
+
+
+
+
+
+
+
+# Integrate channel hopping in the main function
 def main(stdscr):
     global PacketWindow
     global InfoWindow
@@ -921,65 +1027,54 @@ def main(stdscr):
     # Call the helper function to initialize curses
     textwindows.initialize_curses(stdscr)
 
-
-    #Calculate window sizes for two equal windows
+    # Calculate window sizes for display
     max_y, max_x = stdscr.getmaxyx()
     window_width = max_x // 3
 
-    #Create display windows
-    PacketWindow = textwindows.TextWindow('PacketWindow',title='Packets', rows=max_y - 1, columns=window_width, y1=0, x1=0, ShowBorder='Y', BorderColor=2, TitleColor=3)
-    PacketWindow.DisplayTitle()
-    
-    InfoWindow   = textwindows.TextWindow('InfoWindow', title='Information', rows=max_y - 1, columns=window_width, y1=0, x1=window_width +1, ShowBorder='Y', BorderColor=2, TitleColor=3)
-    InfoWindow.ScrollPrint("Raw Packet Data")
-    InfoWindow.DisplayTitle()
+    # Create display windows
+    PacketWindow = textwindows.TextWindow('PacketWindow', title='Packets', rows=max_y - 1, columns=window_width, y1=0, x1=0, ShowBorder='Y', BorderColor=2, TitleColor=3)
+    InfoWindow = textwindows.TextWindow('InfoWindow', title='Information', rows=max_y - 1, columns=window_width, y1=0, x1=window_width + 1, ShowBorder='Y', BorderColor=2, TitleColor=3)
+    DetailsWindow = textwindows.TextWindow('DetailsWindow', title='Extra Info', rows=max_y - 1, columns=window_width, y1=0, x1=window_width * 2 + 1, ShowBorder='Y', BorderColor=2, TitleColor=3)
 
-    DetailsWindow   = textwindows.TextWindow('DetailsWindow', title='Extra Info', rows=max_y - 1, columns=window_width, y1=0, x1=window_width *2 +1, ShowBorder='Y', BorderColor=2, TitleColor=3)
-    DetailsWindow.ScrollPrint("Details")
-    DetailsWindow.DisplayTitle()
-
-
+    # Refresh windows for initial setup
     PacketWindow.refresh()
     InfoWindow.refresh()
     DetailsWindow.refresh()
-    
-    PacketWindow.DisplayTitle()
-    InfoWindow.DisplayTitle()
-    DetailsWindow.DisplayTitle()
 
-    # Load the `oui_dict` into memory from a JSON file
+    # Load the OUI dictionary
     oui_dict = load_oui_dict_from_json("oui_dict.json")
-    print_oui_stats(oui_dict,InfoWindow)
+    print_oui_stats(oui_dict, InfoWindow)
 
-
-    # Example usage
+    # Get the Wi-Fi interface in monitor mode
     interface = get_monitor_mode_interface()
-    
-    # Refresh initial windows
+    if interface is None:
+        InfoWindow.ScrollPrint("ERROR: No interface found in monitor mode. Exiting...")
+        return
 
+    # Start the channel hopper thread
+    hop_interval = 5  # Interval in seconds between channel hops
+    hopper_thread = threading.Thread(target=channel_hopper, args=(interface, hop_interval))
+    hopper_thread.daemon = True
+    hopper_thread.start()
 
-    sniff_packets(interface)
-    InfoWindow.refresh()
-    PacketWindow.refresh()
-    DetailsWindow.refresh()
+    # Start packet sniffing
+    sniff_thread = threading.Thread(target=sniff_packets, args=(interface,))
+    sniff_thread.daemon = True  # Allows the program to exit even if the thread is running
+    sniff_thread.start()
 
+    try:
+        # Keep the curses interface running
+        while True:
+            time.sleep(1)
+            # Update the curses windows if needed
+            PacketWindow.refresh()
+            InfoWindow.refresh()
+            DetailsWindow.refresh()
 
-  
-  #  while looping:
-        # Check for key press
-  #      key = stdscr.getch()
-  #      if key != curses.ERR:
-  #          looping = False
-  #          break
+    except KeyboardInterrupt:
+        InfoWindow.ScrollPrint("Stopping...")
 
-        # Update both windows with scrolling text
-
-        # Increment counter and add delay
-        #time.sleep(0.1)
-       
-
-
-#Call main
+# Call main
 curses.wrapper(main)
 
 
