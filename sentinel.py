@@ -31,8 +31,9 @@ oui_dict      = None
 vendor_cache  = {}
 write_lock    = threading.Lock()
 hop_interval  = 0.25  # Interval in seconds between channel hops
-current_channel_info = {"channel": None, "band": None, "frequency": None}
-
+current_channel_info    = {"channel": None, "band": None, "frequency": None}
+displayed_packets_cache = {}
+key_count = 0
 
 #--------------------------------------------------------------------
 #   __  __    _    ___ _   _                                       --
@@ -63,13 +64,13 @@ class PacketInfo:
         self.ip            = ip  # IP address of the packet source
         self.signal        = signal  # Signal strength
         self.hardware_type = hardware_type  # Hardware type (if ARP packet)
-        self.vendor    = vendor  # MAC vendor info
-        self.ssid      = ssid  # SSID for Wi-Fi packets
-        self.bssid     = bssid  # BSSID for Wi-Fi packets
-        self.protocol  = protocol  # Protocol used in the packet (e.g., TCP, UDP)
-        self.src_port  = src_port  # Source port for TCP/UDP packets
-        self.dst_port  = dst_port  # Destination port for TCP/UDP packets
-        self.timestamp = timestamp  # Timestamp when packet was captured
+        self.vendor        = vendor  # MAC vendor info
+        self.ssid          = ssid  # SSID for Wi-Fi packets
+        self.bssid         = bssid  # BSSID for Wi-Fi packets
+        self.protocol      = protocol  # Protocol used in the packet (e.g., TCP, UDP)
+        self.src_port      = src_port  # Source port for TCP/UDP packets
+        self.dst_port      = dst_port  # Destination port for TCP/UDP packets
+        self.timestamp     = timestamp  # Timestamp when packet was captured
 
         # Generic key-value fields for flexibility
         self.generic_fields = {}
@@ -285,6 +286,8 @@ def packet_callback(packet):
     global DetailsWindow
     global oui_dict
     global current_channel_info
+    global displayed_packets_cache
+    global key_count
 
     count         = 0
     source_vendor = ''
@@ -333,24 +336,7 @@ def packet_callback(packet):
         if "dest" in mac_type:
           dest_vendor = vendor
 
-        # Print the extracted information in a readable way
-        #InfoWindow.ScrollPrint(f"    MAC Address: {mac}")
-        #InfoWindow.ScrollPrint(f"    OUI Prefix : {oui}")
-        #InfoWindow.ScrollPrint(f"    Vendor     : {vendor}")
-      #InfoWindow.ScrollPrint("--------------------------------------------")
-
-
-
-
-
-
-
-
-
-
-
-
-
+      
 
       source_mac    = get_source_mac(packet)
       dest_mac      = get_destination_mac(packet)
@@ -399,9 +385,22 @@ def packet_callback(packet):
 
     
 
-    #ignore routers for now
-    #ignore Huawei which is my AMCREST cameras
-    if 'ROUTER' not in PacketType.upper() and 'HUAWEI' not in dest_vendor.upper() and 'HUAWEI' not in source_vendor.upper():
+
+
+    # Create a unique key for the packet based on important fields
+    packet_key = (source_mac, dest_mac, ssid, vendor)
+
+    
+    # Check if the packet information is already in the cache
+    # If the packet has already been displayed, skip it
+    if packet_key not in displayed_packets_cache:
+      #add to cache
+      displayed_packets_cache[packet_key] = True
+      key_count = key_count + 1
+
+      #ignore routers for now
+      #ignore Huawei which is my AMCREST cameras
+      #if 'ROUTER' not in PacketType.upper() and 'HUAWEI' not in dest_vendor.upper() and 'HUAWEI' not in source_vendor.upper():
       #-------------------------------
       #-- Display information
       #-------------------------------
@@ -415,7 +414,7 @@ def packet_callback(packet):
       PacketWindow.ScrollPrint(f'Band:          {band}')
       PacketWindow.ScrollPrint(f'channel:       {channel}')
       #PacketWindow.ScrollPrint(f': {}')
- 
+      DetailsWindow.ScrollPrint(f"{key_count} - {packet_key}")
 
       
       #Display layers
