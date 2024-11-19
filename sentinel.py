@@ -29,8 +29,9 @@ PacketWindow  = None
 DetailsWindow = None
 oui_dict      = None
 vendor_cache  = {}
+write_lock    = threading.Lock()
+hop_interval  = 0.5  # Interval in seconds between channel hops
 current_channel_info = {"channel": None, "band": None, "frequency": None}
-write_lock           = threading.Lock()
 
 
 #--------------------------------------------------------------------
@@ -453,10 +454,11 @@ def set_channel(interface, channel):
         result = subprocess.run(['sudo', 'iw', 'dev', interface, 'set', 'channel', str(channel)],
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if result.returncode == 0:
-            return
+            return 0
             #InfoWindow.ScrollPrint(f"Channel: {channel}",Color=6)
         else:
             InfoWindow.ScrollPrint(f"Failed to set channel. Error: {result.stderr}",Color=6)
+            return -1
     except Exception as e:
         InfoWindow.ScrollPrint(f"Error occurred while trying to set channel: {str(e)}",Color=6)
 
@@ -738,13 +740,15 @@ def extract_oui_and_vendor_information(packet):
         if mac_prefix not in oui_dict:
             oui_dict[mac_prefix] = (vendor, "No Long Description Available")
 
-            # Use a lock to prevent concurrent write access
-            with write_lock:
-                with open("oui_dict.json", 'w') as json_file:
+            #write to file only if we found the vendor by doing the network lookup
+            if "UNKNOWN" not in vendor:
+              # Use a lock to prevent concurrent write access
+              with write_lock:
+                  with open("oui_dict.json", 'w') as json_file:
                     json.dump(oui_dict, json_file, indent=4)
                     InfoWindow.ScrollPrint("Updating OUI master file")
 
-            InfoWindow.ScrollPrint(f"Added new OUI to master list: {mac_prefix} - {vendor}", Color=5)
+              InfoWindow.ScrollPrint(f"Updated OUI master file: {mac_prefix} - {vendor}", Color=5)
 
         return mac_prefix, vendor
 
@@ -975,6 +979,8 @@ def print_oui_stats(oui_dict,InfoWindow):
 def channel_hopper(interface, hop_interval):
     global current_channel_info
 
+    channel_result = 0
+
     # Define available channels for 2.4 GHz and 5 GHz
     channels_24ghz = list(range(1, 14))  # Channels 1 to 13 for 2.4 GHz
     
@@ -986,8 +992,7 @@ def channel_hopper(interface, hop_interval):
       52, 54, 56, 58, 60, 62, 64, 
       100, 102, 104, 106, 108, 110, 112, 114, 116, 118, 120, 122, 124, 126, 128, 
       132, 134, 136, 138, 140, 142, 144,
-      149, 151, 153, 155, 157, 159, 161, 163, 165, 167, 169, 171, 173
-]  # Complete 5 GHz Wi-Fi channels
+      149, 151, 153, 155, 157, 159, 161, 163, 165, 167, 169, 171, 173]
 
 
     # Combine all channels into one list
@@ -998,7 +1003,13 @@ def channel_hopper(interface, hop_interval):
         while True:
             # Set the interface to the current channel
             current_channel = all_channels[channel_index]
-            set_channel(interface, current_channel)
+            
+            #keep setting channel until we find one that is not disabled
+            while channel_result != 0:
+              InfoWindow.ScrollPrint("Channel Skipped",Color=3)
+              channel_result = set_channel(interface, current_channel)
+
+
 
             # Update the global channel information
             if current_channel in channels_24ghz:
@@ -1038,6 +1049,7 @@ def main(stdscr):
     global InfoWindow
     global DetailsWindow
     global oui_dict
+    global hop_interval
 
     looping = True
 
@@ -1069,7 +1081,6 @@ def main(stdscr):
         return
 
     # Start the channel hopper thread
-    hop_interval = 5  # Interval in seconds between channel hops
     hopper_thread = threading.Thread(target=channel_hopper, args=(interface, hop_interval))
     hopper_thread.daemon = True
     hopper_thread.start()
