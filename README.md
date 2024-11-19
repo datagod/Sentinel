@@ -29,8 +29,8 @@ The tool operates by hopping between Wi-Fi channels while in **promiscuous mode*
    ```
 3. Clone the repository:
    ```sh
-   git clone https://github.com/yourusername/sentinel-program
-   cd sentinel-program
+   git clone https://github.com/datagod/sentinel
+   cd sentinel
    ```
 4. Make the script executable (if applicable):
    ```sh
