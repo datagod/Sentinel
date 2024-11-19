@@ -30,7 +30,7 @@ DetailsWindow = None
 oui_dict      = None
 vendor_cache  = {}
 write_lock    = threading.Lock()
-hop_interval  = 0.5  # Interval in seconds between channel hops
+hop_interval  = 0.25  # Interval in seconds between channel hops
 current_channel_info = {"channel": None, "band": None, "frequency": None}
 
 
@@ -433,7 +433,7 @@ def packet_callback(packet):
       PacketWindow.ScrollPrint(' ')
       PacketWindow.ScrollPrint(' ')
 
-      time.sleep(0.25)
+      #time.sleep(0.25)
 
 
 
