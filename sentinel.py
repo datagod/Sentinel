@@ -388,7 +388,7 @@ def packet_callback(packet):
 
 
     # Create a unique key for the packet based on important fields
-    packet_key = (source_mac, dest_mac, ssid, vendor)
+    packet_key = (source_mac, ssid, vendor)
 
     
     # Check if the packet information is already in the cache
@@ -741,7 +741,7 @@ def extract_oui_and_vendor_information(packet):
             oui_dict[mac_prefix] = (vendor, "No Long Description Available")
 
             #write to file only if we found the vendor by doing the network lookup
-            if "UNKNOWN" not in vendor:
+            if "UNKNOWN" not in vendor.upper():
               # Use a lock to prevent concurrent write access
               with write_lock:
                   with open("oui_dict.json", 'w') as json_file:

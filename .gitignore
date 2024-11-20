@@ -5,5 +5,4 @@ start.sh
 packet_log.csv
 *.log
 PacketWindow.log
-PacketWindow.log
 oui_dict.json
