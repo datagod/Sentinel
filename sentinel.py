@@ -1,4 +1,6 @@
-
+'''
+Notes: Do not write to the windows from multiple threads as this will lead to strange artifacts
+'''
 
 # October
 
@@ -180,7 +182,7 @@ def print_raw_packet(packet):
 
 def get_source_mac(packet):
     def get_mac_field(field):
-        return normalize_mac(field) if isinstance(field, str) else field
+        return normalize_mac(field) if isinstance(field, str) else 'UNKNOWN'
 
     if packet.haslayer(Ether):
         return get_mac_field(packet[Ether].src)
@@ -264,8 +266,8 @@ def extract_ssid(packet):
         if packet.haslayer(Dot11Elt) and isinstance(packet[Dot11Elt].info, bytes):
             return packet[Dot11Elt].info.decode('utf-8', errors='ignore')
     except Exception as e:
-        return 'Unknown SSID'
-    return 'Hidden/Unknown SSID'
+        return 'UNKNOWN'
+    return 'UNKNOWN'
 
 
 
@@ -365,8 +367,8 @@ def packet_callback(packet):
     DeviceType    = ''
     source_mac    = 'UNKNOWN'
     dest_mac      = 'UNKNOWN'
-    #InfoWindow.Clear()
-    #InfoWindow.ScrollPrint(get_raw_packet_string(packet))
+    source_oui    = ''
+    ssid          = ''
 
 
     #-------------------------------
@@ -413,11 +415,13 @@ def packet_callback(packet):
       
 
       if 'UNKNOWN' in source_mac.upper():
-        source_mac    = get_source_mac(packet)
+        source_mac = get_source_mac(packet)
       
       if 'UNKNOWN' in dest_mac.upper():
         dest_mac      = get_destination_mac(packet)
       
+      if 'UNKNOWN' not in source_mac.upper():
+        source_oui = source_mac[:8]
 
       for mac_type, details in mac_details.items():
         if 'source'.upper() in mac_type.upper():
@@ -429,9 +433,10 @@ def packet_callback(packet):
       channel = current_channel_info['channel']
       band    = current_channel_info['band']
             
-      DeviceType = determine_device_type(source_mac)
-      if DeviceType == 'UNKNOWN':
-        DeviceType = determine_device_type_with_packet(packet)  
+      if source_oui != None:
+        DeviceType = determine_device_type(source_oui)
+      #if DeviceType == 'UNKNOWN':
+      #  DeviceType = determine_device_type_with_packet(packet)  
     
 
       #print(f"MAC: {mac}, Vendor Short: {vendor_info[0]}, Vendor Long: {vendor_info[1]}")
@@ -480,31 +485,26 @@ def packet_callback(packet):
       #DetailsWindow.ScrollPrint(f"{key_count} - {packet_key}")
       DetailsWindow.ScrollPrint(f"{key_count} - {DeviceType} {source_mac} {source_vendor} {ssid} OUI {oui}")
 
-    #ignore routers for now
-    #ignore Huawei which is my AMCREST cameras
-    #if 'ROUTER' not in PacketType.upper() and 'HUAWEI' not in dest_vendor.upper() and 'HUAWEI' not in source_vendor.upper():
-    #-------------------------------
-    #-- Display information
-    #-------------------------------
-    PacketWindow.ScrollPrint('---------------------------------------------------')
-    PacketWindow.ScrollPrint(f'CaptureDate:   {timestamp}')
-    PacketWindow.ScrollPrint(f'PacketType:    {PacketType}')
-    PacketWindow.ScrollPrint(f'DeviceType:    {DeviceType}')
-    PacketWindow.ScrollPrint(f'Source MAC:    {source_mac}')
-    PacketWindow.ScrollPrint(f'Source Vendor: {source_vendor}')
-    PacketWindow.ScrollPrint(f'Dest MAC:      {dest_mac}')
-    PacketWindow.ScrollPrint(f'Dest Vendor:   {dest_vendor}')
-    PacketWindow.ScrollPrint(f'SSID:          {ssid}')
-    PacketWindow.ScrollPrint(f'Band:          {band}')
-    PacketWindow.ScrollPrint(f'channel:       {channel}')
-    #PacketWindow.ScrollPrint(f': {}')
+      #ignore routers for now
+      #ignore Huawei which is my AMCREST cameras
+      #if 'ROUTER' not in PacketType.upper() and 'HUAWEI' not in dest_vendor.upper() and 'HUAWEI' not in source_vendor.upper():
+      #-------------------------------
+      #-- Display information
+      #-------------------------------
+      PacketWindow.ScrollPrint(f'CaptureDate:   {timestamp}')
+      PacketWindow.ScrollPrint(f'PacketType:    {PacketType}')
+      PacketWindow.ScrollPrint(f'DeviceType:    {DeviceType}')
+      PacketWindow.ScrollPrint(f'Source MAC:    {source_mac}')
+      PacketWindow.ScrollPrint(f'Source Vendor: {source_vendor}')
+      PacketWindow.ScrollPrint(f'Dest MAC:      {dest_mac}')
+      PacketWindow.ScrollPrint(f'Dest Vendor:   {dest_vendor}')
+      PacketWindow.ScrollPrint(f'SSID:          {ssid}')
+      PacketWindow.ScrollPrint(f'Band:          {band}')
+      PacketWindow.ScrollPrint(f'channel:       {channel}')
+      #PacketWindow.ScrollPrint(f': {}')
+      PacketWindow.ScrollPrint('---------------------------------------------------')
 
-     
-         
-    PacketWindow.ScrollPrint(' ')
-    PacketWindow.ScrollPrint(' ')
-
-    time.sleep(0.25)
+    #time.sleep(0.25)
 
 
 
@@ -1182,11 +1182,11 @@ def main(stdscr):
             time.sleep(1)
             # Update the curses windows if needed
             #PacketWindow.window.touchwin()
-            PacketWindow.refresh()
+            #PacketWindow.refresh()
             #InfoWindow.window.touchwin()
-            InfoWindow.refresh()
+            #InfoWindow.refresh()
             #DetailsWindow.window.touchwin()
-            DetailsWindow.refresh()
+            #DetailsWindow.refresh()
 
     except KeyboardInterrupt:
         InfoWindow.ScrollPrint("Stopping...")

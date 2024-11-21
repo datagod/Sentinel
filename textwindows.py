@@ -206,7 +206,7 @@ class TextWindow(object):
             self.StartColumn = 0
 
     def refresh(self):
-        self.window.touchwin()  
+        #self.window.touchwin()  
         self.window.refresh()
 
 
@@ -219,12 +219,17 @@ class TextWindow(object):
             logging.debug(f"Additional Info: {AdditionalInfo}")
 
         # Also print to console if necessary
-        print("ERROR - An error occurred in TextWindow or TextPad class.")
-        print(ErrorMessage)
-        print("TRACE")
-        print(TraceMessage)
+        #print("ERROR - An error occurred in TextWindow or TextPad class.")
+        #print(ErrorMessage)
+        #print("TRACE")
+        #print(TraceMessage)
+        #if AdditionalInfo:
+        #    print("Additional info:", AdditionalInfo)
+
+        self.ScrollPrint(f"ERROR: {ErrorMessage}")
+        self.ScrollPrint(f"TRACE: {TraceMessage}")
         if AdditionalInfo:
-            print("Additional info:", AdditionalInfo)
+            self.ScrollPrint(f"Additional Info: {AdditionalInfo}")
 
         # Optional delay to give time for users to read the error (if used interactively)
         time.sleep(5)
