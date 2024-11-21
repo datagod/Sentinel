@@ -22,6 +22,9 @@ from scapy.layers.inet import IP, TCP, UDP, ICMP
 from scapy.layers.dhcp import DHCP
 from scapy.layers.dot11 import Dot11, Dot11Beacon, Dot11ProbeReq, Dot11ProbeResp, Dot11AssoReq, Dot11AssoResp
 
+# Import the device type dictionary from the other file
+from device_type_dict import device_type_dict
+
 
 #Global Variables
 InfoWindow    = None
@@ -30,10 +33,12 @@ DetailsWindow = None
 oui_dict      = None
 vendor_cache  = {}
 write_lock    = threading.Lock()
-hop_interval  = 0.25  # Interval in seconds between channel hops
+hop_interval  = 0.5  # Interval in seconds between channel hops
 current_channel_info    = {"channel": None, "band": None, "frequency": None}
 displayed_packets_cache = {}
-key_count = 0
+key_count               = 0
+HorizontalWindowCount   = 5
+
 
 #--------------------------------------------------------------------
 #   __  __    _    ___ _   _                                       --
@@ -175,7 +180,7 @@ def print_raw_packet(packet):
 
 def get_source_mac(packet):
     def get_mac_field(field):
-        return field.upper() if isinstance(field, str) else field
+        return normalize_mac(field) if isinstance(field, str) else field
 
     if packet.haslayer(Ether):
         return get_mac_field(packet[Ether].src)
@@ -192,24 +197,24 @@ def get_source_mac(packet):
 
 def get_destination_mac(packet):
     def get_mac_field(field):
-        return field.upper() if isinstance(field, str) else field
+        return field.upper().replace('-', ':')   if isinstance(field, str) else field
 
     if packet.haslayer(Ether):
-        return get_mac_field(packet[Ether].dst)
+        return get_mac_field(packet[Ether].dst).upper().replace('-', ':')
     elif packet.haslayer(ARP):
-        return get_mac_field(packet[ARP].hwdst)
+        return get_mac_field(packet[ARP].hwdst).upper().replace('-', ':')
     elif packet.haslayer(Dot11):
-        return get_mac_field(packet[Dot11].addr1)
+        return get_mac_field(packet[Dot11].addr1).upper().replace('-', ':')
     elif packet.haslayer(Dot1Q):
-        return get_mac_field(packet[Dot1Q].dst)  # VLAN Tagged Frame
+        return get_mac_field(packet[Dot1Q].dst).upper().replace('-', ':')  # VLAN Tagged Frame
     elif packet.haslayer(Dot3):
-        return get_mac_field(packet[Dot3].dst)  # For LLC packets over Ethernet
+        return get_mac_field(packet[Dot3].dst).upper().replace('-', ':')  # For LLC packets over Ethernet
     return 'No Destination MAC'
 
 
 def get_vendor(mac, oui_dict):
     # Extract the OUI prefix (first 8 characters)
-    mac_prefix = mac[:8].upper().replace('-', ':')  # Normalize delimiter format
+    mac_prefix = normalize_mac(mac[:8])  # Normalize delimiter format
     InfoWindow.ScrollPrint(f"Looking up MAC Prefix: {mac_prefix}")
 
     # Check if the OUI prefix is already in the cache
@@ -228,7 +233,7 @@ def get_vendor(mac, oui_dict):
             vendor_info = (MAC.oui.registration().org, "No Long Description Available")
             InfoWindow.ScrollPrint(f"Fallback Vendor Info from netaddr: {vendor_info}")
         except (netaddr.core.NotRegisteredError, ValueError):
-            vendor_info = ("Unknown", "Unknown or Not Registered")
+            vendor_info = ("Unknown", "Unknown")
             InfoWindow.ScrollPrint(f"Vendor Not Found for {mac_prefix}")
 
     # Store the found result in the vendor_cache for future lookups
@@ -272,13 +277,75 @@ def load_oui_dict_from_json(filename):
 
 # Example Lookup Function
 def lookup_vendor_by_mac(mac, oui_dict):
-    mac_prefix = mac[:8].upper()  # Extract the OUI prefix from MAC address
-    return oui_dict.get(mac_prefix, ("Unknown", "Unknown or Not Registered"))
+    ## Extract and normalize the OUI prefix from MAC address
+    mac_prefix = normalize_mac(mac[:8])
+    return oui_dict.get(mac_prefix, ("Unknown", "Unknown"))
 
 
 
 
+def determine_device_type(oui):
+  device_type = device_type_dict.get(oui, "UNKNOWN")
+  return device_type 
 
+
+
+def determine_device_type_with_packet(packet):
+    """
+    Determines the likely type of the device that sent the given packet.
+    
+    Device types are inferred based on packet behavior, known vendors, SSID, or
+    specific network activity.
+    
+    :param packet: Scapy packet object to analyze.
+    :return: String indicating the likely device type.
+    """
+
+    # Check for already known vendor information from your lookup
+    if packet.haslayer(Dot11) and packet.addr2:
+        mac = normalize_mac(packet.addr2)
+        
+        if mac[:8] in vendor_cache:
+            vendor_info = vendor_cache[mac[:8]]
+            vendor_name = vendor_info[0].lower() if isinstance(vendor_info, tuple) else vendor_info.lower()
+
+            # Determine device type based on vendor name
+            if any(keyword in vendor_name for keyword in ["samsung", "apple", "huawei", "oneplus", "xiaomi"]):
+                return "Mobile Phone"
+            elif any(keyword in vendor_name for keyword in ["cisco", "tplink", "netgear", "dlink"]):
+                return "Router/Access Point"
+            elif any(keyword in vendor_name for keyword in ["intel", "lenovo", "dell", "hp"]):
+                return "Laptop/Computer"
+            elif any(keyword in vendor_name for keyword in ["amazon", "google", "nest", "sonos", "smart"]):
+                return "Smart Home Device (e.g., Amazon Echo, Google Home)"
+            elif any(keyword in vendor_name for keyword in ["tplink", "philips", "hue", "ring", "wyze"]):
+                return "IoT Device"
+            else:
+                return "Unknown (" + vendor_name.title() + ")"
+
+    # Wi-Fi Routers/Access Points: Typically broadcast beacon frames or respond to probe requests
+    if packet.haslayer(Dot11Beacon):
+        return "Router/Access Point"
+
+    # Mobile Phones: Look for probe requests or DHCP requests
+    if packet.haslayer(DHCP):
+        return "Mobile Phone (DHCP Request)"
+    if packet.haslayer(Dot11ProbeReq):
+        return "Mobile Phone (Probe Request)"
+
+    # Laptops/Computers: Often open specific ports (e.g., TCP 80, 443 for web, SSH, etc.)
+    if packet.haslayer(TCP):
+        if packet[TCP].dport in [22, 80, 443]:
+            return "Laptop/Computer"
+
+    # Fallback to Unknown Device
+    return "Unknown Device"
+
+
+
+#-------------------------------
+#-- Packet Callback 
+#-------------------------------
 
 def packet_callback(packet):
     global PacketWindow
@@ -295,6 +362,9 @@ def packet_callback(packet):
     channel       = 0
     band          = 0
     timestamp     = datetime.now()
+    DeviceType    = ''
+    source_mac    = 'UNKNOWN'
+    dest_mac      = 'UNKNOWN'
     #InfoWindow.Clear()
     #InfoWindow.ScrollPrint(get_raw_packet_string(packet))
 
@@ -314,22 +384,26 @@ def packet_callback(packet):
 
 
       
+      
 
       #There can be more than one source/destination depending on the type of packet
       #We will focus on WIFI packets for this project
       mac_details   = extract_oui_and_vendor_information(packet)
-  
 
+      
       # Iterate through each key-value pair in the mac_info dictionary
       #InfoWindow.ScrollPrint("-----MAC DETAILS-------------------------------")
       for mac_type, details in mac_details.items():
-        #InfoWindow.ScrollPrint(f"MAC_TYPE: {mac_type}:")
-       
+        #InfoWindow.ScrollPrint(f"MAC_TYPE: {mac_type} {details}:")
+        
+        if 'SOURCE' in mac_type.upper():
+          source_mac = normalize_mac(details.get('MAC', 'UNKNOWN'))
+        if 'DEST' in mac_type.upper():
+          dest_mac = normalize_mac(details.get('MAC', 'UNKNOWN'))
 
         # Extract MAC address, OUI, and Vendor information
-        mac = details.get('MAC', 'Unknown MAC Address')
-        oui = details.get('OUI', 'Unknown OUI')
-        vendor = details.get('Vendor', 'Unknown Vendor')
+        oui    = details.get('OUI', 'UNKNOWN')
+        vendor = details.get('Vendor', 'UNKNOWN')
 
         if "source" in mac_type:
           source_vendor = vendor
@@ -338,9 +412,13 @@ def packet_callback(packet):
 
       
 
-      source_mac    = get_source_mac(packet)
-      dest_mac      = get_destination_mac(packet)
+      if 'UNKNOWN' in source_mac.upper():
+        source_mac    = get_source_mac(packet)
       
+      if 'UNKNOWN' in dest_mac.upper():
+        dest_mac      = get_destination_mac(packet)
+      
+
       for mac_type, details in mac_details.items():
         if 'source'.upper() in mac_type.upper():
           source_vendor = f"{details['Vendor']}"
@@ -351,7 +429,10 @@ def packet_callback(packet):
       channel = current_channel_info['channel']
       band    = current_channel_info['band']
             
-
+      DeviceType = determine_device_type(source_mac)
+      if DeviceType == 'UNKNOWN':
+        DeviceType = determine_device_type_with_packet(packet)  
+    
 
       #print(f"MAC: {mac}, Vendor Short: {vendor_info[0]}, Vendor Long: {vendor_info[1]}")
 
@@ -388,52 +469,42 @@ def packet_callback(packet):
 
 
     # Create a unique key for the packet based on important fields
-    packet_key = (source_mac, ssid, vendor)
+    packet_key = (source_mac, ssid, vendor, DeviceType)
 
     
     # Check if the packet information is already in the cache
-    # If the packet has already been displayed, skip it
     if packet_key not in displayed_packets_cache:
       #add to cache
       displayed_packets_cache[packet_key] = True
       key_count = key_count + 1
+      #DetailsWindow.ScrollPrint(f"{key_count} - {packet_key}")
+      DetailsWindow.ScrollPrint(f"{key_count} - {DeviceType} {source_mac} {source_vendor} {ssid} OUI {oui}")
 
-      #ignore routers for now
-      #ignore Huawei which is my AMCREST cameras
-      #if 'ROUTER' not in PacketType.upper() and 'HUAWEI' not in dest_vendor.upper() and 'HUAWEI' not in source_vendor.upper():
-      #-------------------------------
-      #-- Display information
-      #-------------------------------
-      PacketWindow.ScrollPrint('---------------------------------------------------')
-      PacketWindow.ScrollPrint(f'CaptureDate:   {timestamp}')
-      PacketWindow.ScrollPrint(f'PacketType:    {PacketType}')
-      PacketWindow.ScrollPrint(f'Source MAC:    {source_mac}')
-      PacketWindow.ScrollPrint(f'Source Vendor: {source_vendor}')
-      PacketWindow.ScrollPrint(f'Dest MAC:      {dest_mac}')
-      PacketWindow.ScrollPrint(f'Dest Vendor:   {dest_vendor}')
-      PacketWindow.ScrollPrint(f'SSID:          {ssid}')
-      PacketWindow.ScrollPrint(f'Band:          {band}')
-      PacketWindow.ScrollPrint(f'channel:       {channel}')
-      #PacketWindow.ScrollPrint(f': {}')
-      DetailsWindow.ScrollPrint(f"{key_count} - {packet_key}")
+    #ignore routers for now
+    #ignore Huawei which is my AMCREST cameras
+    #if 'ROUTER' not in PacketType.upper() and 'HUAWEI' not in dest_vendor.upper() and 'HUAWEI' not in source_vendor.upper():
+    #-------------------------------
+    #-- Display information
+    #-------------------------------
+    PacketWindow.ScrollPrint('---------------------------------------------------')
+    PacketWindow.ScrollPrint(f'CaptureDate:   {timestamp}')
+    PacketWindow.ScrollPrint(f'PacketType:    {PacketType}')
+    PacketWindow.ScrollPrint(f'DeviceType:    {DeviceType}')
+    PacketWindow.ScrollPrint(f'Source MAC:    {source_mac}')
+    PacketWindow.ScrollPrint(f'Source Vendor: {source_vendor}')
+    PacketWindow.ScrollPrint(f'Dest MAC:      {dest_mac}')
+    PacketWindow.ScrollPrint(f'Dest Vendor:   {dest_vendor}')
+    PacketWindow.ScrollPrint(f'SSID:          {ssid}')
+    PacketWindow.ScrollPrint(f'Band:          {band}')
+    PacketWindow.ScrollPrint(f'channel:       {channel}')
+    #PacketWindow.ScrollPrint(f': {}')
 
-      
-      #Display layers
-      #for layer in packet_layers:
-      #  count = count + 1
-      #  DetailsWindow.ScrollPrint(f'{count}     Layer: {layer}')
-      #  DetailsWindow.ScrollPrint('')
-      
+     
+         
+    PacketWindow.ScrollPrint(' ')
+    PacketWindow.ScrollPrint(' ')
 
-      #InfoWindow.ScrollPrint(packet_details_string)
-    
-      #InfoWindow.ScrollPrint(analyze_packet(packet))
-      #time.sleep(2)
-          
-      PacketWindow.ScrollPrint(' ')
-      PacketWindow.ScrollPrint(' ')
-
-      #time.sleep(0.25)
+    time.sleep(0.25)
 
 
 
@@ -568,8 +639,8 @@ def format_packet(packet):
     try:
         summary = packet.summary()
         if packet.haslayer(Dot11):
-            source_mac = packet[Dot11].addr2 or "Unknown"
-            dest_mac = packet[Dot11].addr1 or "Unknown"
+            source_mac = normalize_mac(packet[Dot11].addr2)   or "Unknown"
+            dest_mac   = normalize_mac(packet[Dot11].addr1)   or "Unknown"
             formatted_string = f"[Source: {source_mac:<17}] [Destination: {dest_mac:<17}] - {summary}"
         else:
             formatted_string = summary
@@ -580,6 +651,8 @@ def format_packet(packet):
 
 
 
+def normalize_mac(mac: str) -> str:
+    return mac.upper().replace('-', ':')
 
 
 def analyze_packet(packet):
@@ -706,6 +779,18 @@ def get_monitor_mode_interface():
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 def extract_oui_and_vendor_information(packet):
     """
     Extracts OUI and vendor information for all possible MAC addresses in the packet.
@@ -717,21 +802,22 @@ def extract_oui_and_vendor_information(packet):
 
 
     def get_vendor_and_oui(mac):
-        
-
-        if mac is None:
-            return 'No MAC Address', 'No Vendor'
-
-        mac_prefix = mac[:8].upper().replace('-', ':')
-        
+              
+        mac_prefix = normalize_mac(mac[:8])
         if mac_prefix in vendor_cache:
-            return mac_prefix, vendor_cache[mac_prefix]
+          return mac_prefix, vendor_cache[mac_prefix]
+
+
+
 
         try:
-            MAC = netaddr.EUI(mac)
-            vendor = MAC.oui.registration().org
+          MAC = netaddr.EUI(mac)
+          # Use netaddr's built-in formatting options to normalize MAC address.
+          MAC.dialect = netaddr.mac_unix_expanded  # Ensures colon separator with full 6 groups
+                
+          vendor = MAC.oui.registration().org
         except netaddr.core.NotRegisteredError:
-            vendor = 'Unknown or Not Registered'
+            vendor = 'Unknown'
         except ValueError:
             vendor = 'Unknown'
 
@@ -758,8 +844,8 @@ def extract_oui_and_vendor_information(packet):
 
     # Ethernet Layer
     if packet.haslayer(Ether):
-        src_mac = packet[Ether].src
-        dst_mac = packet[Ether].dst
+        src_mac = normalize_mac(packet[Ether].src)
+        dst_mac = normalize_mac(packet[Ether].dst)
         if src_mac:
             src_oui, src_vendor = get_vendor_and_oui(src_mac)
             mac_info['Ethernet Source MAC'] = {'MAC': src_mac, 'OUI': src_oui, 'Vendor': src_vendor}
@@ -769,8 +855,8 @@ def extract_oui_and_vendor_information(packet):
 
     # ARP Layer
     if packet.haslayer(ARP):
-        src_mac = packet[ARP].hwsrc
-        dst_mac = packet[ARP].hwdst
+        src_mac = normalize_mac(packet[ARP].hwsrc)
+        dst_mac = normalize_mac(packet[ARP].hwdst)
         if src_mac:
             src_oui, src_vendor = get_vendor_and_oui(src_mac)
             mac_info['ARP Source MAC'] = {'MAC': src_mac, 'OUI': src_oui, 'Vendor': src_vendor}
@@ -782,38 +868,38 @@ def extract_oui_and_vendor_information(packet):
     if packet.haslayer(Dot11):
         # Destination MAC
         if hasattr(packet, 'addr1') and packet.addr1:
-            dst_mac = packet.addr1
+            dst_mac = normalize_mac(packet.addr1)
             dst_oui, dst_vendor = get_vendor_and_oui(dst_mac)
             mac_info['WIFI Destination MAC'] = {'MAC': dst_mac, 'OUI': dst_oui, 'Vendor': dst_vendor}
 
         # Source MAC
         if hasattr(packet, 'addr2') and packet.addr2:
-            src_mac = packet.addr2
+            src_mac = normalize_mac(packet.addr2)
             src_oui, src_vendor = get_vendor_and_oui(src_mac)
             mac_info['WIFI Source MAC'] = {'MAC': src_mac, 'OUI': src_oui, 'Vendor': src_vendor}
 
         # BSSID
         if hasattr(packet, 'addr3') and packet.addr3:
-            bssid_mac = packet.addr3
+            bssid_mac = normalize_mac(packet.addr3)
             bssid_oui, bssid_vendor = get_vendor_and_oui(bssid_mac)
             mac_info['WIFI BSSID'] = {'MAC': bssid_mac, 'OUI': bssid_oui, 'Vendor': bssid_vendor}
 
         # Additional MAC Address (usually used in WDS frames)
         if hasattr(packet, 'addr4') and packet.addr4:
-            additional_mac = packet.addr4
+            additional_mac = normalize_mac(packet.addr4)
             additional_oui, additional_vendor = get_vendor_and_oui(additional_mac)
             mac_info['WIFI Additional MAC'] = {'MAC': additional_mac, 'OUI': additional_oui, 'Vendor': additional_vendor}
 
     # VLAN Tagged Frame Layer
     if packet.haslayer(Dot1Q):
-        src_mac = packet[Dot1Q].src
+        src_mac = normalize_mac(packet[Dot1Q].src)
         if src_mac:
             src_oui, src_vendor = get_vendor_and_oui(src_mac)
             mac_info['VLAN Tagged MAC'] = {'MAC': src_mac, 'OUI': src_oui, 'Vendor': src_vendor}
 
     # 802.3 Layer (for LLC Ethernet packets)
     if packet.haslayer(Dot3):
-        src_mac = packet[Dot3].src
+        src_mac = normalize_mac(packet[Dot3].src)
         if src_mac:
             src_oui, src_vendor = get_vendor_and_oui(src_mac)
             mac_info['802.3 Source MAC'] = {'MAC': src_mac, 'OUI': src_oui, 'Vendor': src_vendor}
@@ -1025,7 +1111,7 @@ def channel_hopper(interface, hop_interval):
                     "frequency": 5000 + (current_channel * 5)
                 }
 
-            InfoWindow.ScrollPrint(f"{current_channel_info['band']} band - Channel {current_channel} - Freq. {current_channel_info['frequency']} MHz",Color=5)
+            #InfoWindow.ScrollPrint(f"{current_channel_info['band']} band - Channel {current_channel} - Freq. {current_channel_info['frequency']} MHz",Color=5)
 
 
             # Move to the next channel (wrap around if at the end)
@@ -1058,7 +1144,7 @@ def main(stdscr):
 
     # Calculate window sizes for display
     max_y, max_x = stdscr.getmaxyx()
-    window_width = max_x // 3
+    window_width = max_x // HorizontalWindowCount
 
     # Create display windows
     PacketWindow = textwindows.TextWindow('PacketWindow', title='Packets', rows=max_y - 1, columns=window_width, y1=0, x1=0, ShowBorder='Y', BorderColor=2, TitleColor=3)
@@ -1095,8 +1181,11 @@ def main(stdscr):
         while True:
             time.sleep(1)
             # Update the curses windows if needed
+            #PacketWindow.window.touchwin()
             PacketWindow.refresh()
+            #InfoWindow.window.touchwin()
             InfoWindow.refresh()
+            #DetailsWindow.window.touchwin()
             DetailsWindow.refresh()
 
     except KeyboardInterrupt:

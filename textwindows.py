@@ -206,6 +206,7 @@ class TextWindow(object):
             self.StartColumn = 0
 
     def refresh(self):
+        self.window.touchwin()  
         self.window.refresh()
 
 
