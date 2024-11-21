@@ -435,9 +435,12 @@ def packet_callback(packet):
             
       if source_oui != None:
         DeviceType = determine_device_type(source_oui)
-      #if DeviceType == 'UNKNOWN':
-      #  DeviceType = determine_device_type_with_packet(packet)  
-    
+      if DeviceType == 'UNKNOWN':
+        DeviceType = determine_device_type_with_packet(packet)  
+      if DeviceType == 'UNKNOWN' and 'MOBILE' in PacketType.upper() :
+          DeviceType = 'Mobile'
+      
+
 
       #print(f"MAC: {mac}, Vendor Short: {vendor_info[0]}, Vendor Long: {vendor_info[1]}")
 
@@ -483,8 +486,20 @@ def packet_callback(packet):
       displayed_packets_cache[packet_key] = True
       key_count = key_count + 1
       #DetailsWindow.ScrollPrint(f"{key_count} - {packet_key}")
-      DetailsWindow.ScrollPrint(f"{key_count} - {DeviceType} {source_mac} {source_vendor} {ssid} OUI {oui}")
 
+
+      DetailsWindow.ScrollPrint(f"{key_count} - {DeviceType} {source_mac} {source_vendor} {ssid} OUI {oui}")
+      #DetailsWindow.ScrollPrint(f'CaptureDate:   {timestamp}')
+      #DetailsWindow.ScrollPrint(f'PacketType:    {PacketType}')
+      #DetailsWindow.ScrollPrint(f'DeviceType:    {DeviceType}')
+      #DetailsWindow.ScrollPrint(f'Source MAC:    {source_mac}')
+      #DetailsWindow.ScrollPrint(f'Source Vendor: {source_vendor}')
+      #DetailsWindow.ScrollPrint(f'Dest MAC:      {dest_mac}')
+      #DetailsWindow.ScrollPrint(f'Dest Vendor:   {dest_vendor}')
+      #DetailsWindow.ScrollPrint(f'SSID:          {ssid}')
+      #DetailsWindow.ScrollPrint(f'Band:          {band}')
+      #DetailsWindow.ScrollPrint(f'channel:       {channel}')
+      
       #ignore routers for now
       #ignore Huawei which is my AMCREST cameras
       #if 'ROUTER' not in PacketType.upper() and 'HUAWEI' not in dest_vendor.upper() and 'HUAWEI' not in source_vendor.upper():
