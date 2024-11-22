@@ -40,6 +40,7 @@ current_channel_info    = {"channel": None, "band": None, "frequency": None}
 displayed_packets_cache = {}
 key_count               = 0
 HorizontalWindowCount   = 5
+friendly_devices_dict   = None
 
 
 #--------------------------------------------------------------------
@@ -271,10 +272,14 @@ def extract_ssid(packet):
 
 
 
+def load_friendly_devices_dict(filename):
+    with open(filename, 'r') as json_file:
+        return json.load(json_file)
 
 def load_oui_dict_from_json(filename):
     with open(filename, 'r') as json_file:
         return json.load(json_file)
+
 
 
 # Example Lookup Function
@@ -345,6 +350,28 @@ def determine_device_type_with_packet(packet):
 
 
 
+
+
+
+
+
+
+
+# Function to search for a MAC address
+def search_friendly_devices(mac, friendly_devices):
+    for device in friendly_devices:
+        if device["MAC"] == mac:
+            return {"FriendlyName": device["FriendlyName"], "Type": device["Type"]}
+    return None  # Return None if MAC is not found
+
+
+
+
+
+
+
+
+
 #-------------------------------
 #-- Packet Callback 
 #-------------------------------
@@ -354,6 +381,7 @@ def packet_callback(packet):
     global InfoWindow
     global DetailsWindow
     global oui_dict
+    global friendly_devices_dict
     global current_channel_info
     global displayed_packets_cache
     global key_count
@@ -369,6 +397,8 @@ def packet_callback(packet):
     dest_mac      = 'UNKNOWN'
     source_oui    = ''
     ssid          = ''
+    FriendlyName  = ''
+    FriendlyType  = ''
 
 
     #-------------------------------
@@ -479,7 +509,7 @@ def packet_callback(packet):
     # Create a unique key for the packet based on important fields
     packet_key = (source_mac, ssid, vendor, DeviceType)
 
-    
+
     # Check if the packet information is already in the cache
     if packet_key not in displayed_packets_cache:
       #add to cache
@@ -488,7 +518,15 @@ def packet_callback(packet):
       #DetailsWindow.ScrollPrint(f"{key_count} - {packet_key}")
 
 
-      DetailsWindow.ScrollPrint(f"{key_count} - {DeviceType} {source_mac} {source_vendor} {ssid} OUI {oui}")
+      #Check for friendly device
+      result = search_friendly_devices(source_mac,friendly_devices_dict)
+      if result:
+        FriendlyName = result['FriendlyName']
+        FriendlyType = result['Type']
+        DetailsWindow.ScrollPrint(f"{key_count} - {FriendlyName} - {FriendlyType} - {source_vendor} - {ssid}")
+
+      else:
+          DetailsWindow.ScrollPrint(f"{key_count} - {DeviceType} - {source_mac} - {source_vendor} - {ssid}")
       #DetailsWindow.ScrollPrint(f'CaptureDate:   {timestamp}')
       #DetailsWindow.ScrollPrint(f'PacketType:    {PacketType}')
       #DetailsWindow.ScrollPrint(f'DeviceType:    {DeviceType}')
@@ -1150,6 +1188,7 @@ def main(stdscr):
     global InfoWindow
     global DetailsWindow
     global oui_dict
+    global friendly_devices_dict
     global hop_interval
 
     looping = True
@@ -1174,6 +1213,11 @@ def main(stdscr):
     # Load the OUI dictionary
     oui_dict = load_oui_dict_from_json("oui_dict.json")
     print_oui_stats(oui_dict, InfoWindow)
+
+
+    # Load the friendly devices dictionary
+    friendly_devices_dict = load_friendly_devices_dict("FriendlyDevices.json")
+    
 
     # Get the Wi-Fi interface in monitor mode
     interface = get_monitor_mode_interface()
