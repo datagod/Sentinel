@@ -1220,8 +1220,8 @@ def main(stdscr):
 
     # Create display windows
     PacketWindow = textwindows.TextWindow('PacketWindow', title='Packets', rows=max_y - 1, columns=window_width, y1=0, x1=0, ShowBorder='Y', BorderColor=2, TitleColor=3)
-    InfoWindow = textwindows.TextWindow('InfoWindow', title='Information', rows=max_y - 1, columns=window_width, y1=0, x1=window_width + 1, ShowBorder='Y', BorderColor=2, TitleColor=3)
-    DetailsWindow = textwindows.TextWindow('DetailsWindow', title='Extra Info', rows=max_y - 1, columns=window_width, y1=0, x1=window_width * 2 + 1, ShowBorder='Y', BorderColor=2, TitleColor=3)
+    DetailsWindow = textwindows.TextWindow('DetailsWindow', title='Details', rows=max_y - 1, columns=window_width, y1=0, x1=window_width + 1, ShowBorder='Y', BorderColor=2, TitleColor=3)
+    InfoWindow = textwindows.TextWindow('InfoWindow', title='Extra Info', rows=max_y - 1, columns=window_width, y1=0, x1=window_width * 2 + 1, ShowBorder='Y', BorderColor=2, TitleColor=3)
 
     # Refresh windows for initial setup
     PacketWindow.refresh()
