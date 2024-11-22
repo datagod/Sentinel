@@ -27,7 +27,6 @@ Date            | Author         | Description
 
 
 
-# October
 
 import curses
 import textwindows
@@ -523,7 +522,7 @@ def packet_callback(packet):
 
 
     # Create a unique key for the packet based on important fields
-    packet_key = (source_mac, ssid, vendor, DeviceType, KeyTime)
+    packet_key = (source_mac, ssid, vendor, DeviceType)
 
 
     # Check if the packet information is already in the cache
