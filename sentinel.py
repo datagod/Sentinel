@@ -1,6 +1,31 @@
 '''
 Notes: Do not write to the windows from multiple threads as this will lead to strange artifacts
+
+
+Sentinel Passive Surveillance System
+====================================
+
+Description:
+------------
+This program is a passive network surveillance system designed to capture network packets,
+ extract detailed information such as MAC addresses, SSIDs, vendors, and protocols, 
+ and display the information in separate text windows. 
+ It utilizes scapy for packet sniffing and curses for displaying the information in a text-based UI. 
+ Additionally, the system performs channel hopping to capture packets across multiple Wi-Fi channels.
+
+Author: Bill (Datagod)
+Creation Date: October 2024
+
+Change Log:
+-----------
+Date            | Author         | Description
+----------------|----------------|-----------------------------------------------------------
+2024-11-21      | datagod        | Initial version of the program.
+
+
 '''
+
+
 
 # October
 
@@ -392,6 +417,8 @@ def packet_callback(packet):
     channel       = 0
     band          = 0
     timestamp     = datetime.now()
+    KeyTime       = datetime.now().replace(second=0, microsecond=0)
+
     DeviceType    = ''
     source_mac    = 'UNKNOWN'
     dest_mac      = 'UNKNOWN'
@@ -399,6 +426,12 @@ def packet_callback(packet):
     ssid          = ''
     FriendlyName  = ''
     FriendlyType  = ''
+
+
+    def resolve_mac(mac, resolver_function, packet):
+        if 'UNKNOWN' in mac.upper():
+            return resolver_function(packet)
+        return mac
 
 
     #-------------------------------
@@ -414,8 +447,7 @@ def packet_callback(packet):
       packet_info    = packet.show(dump=True)
       packet_details = get_packet_details_as_string(packet)
 
-
-      
+    
       
 
       #There can be more than one source/destination depending on the type of packet
@@ -442,16 +474,13 @@ def packet_callback(packet):
         if "dest" in mac_type:
           dest_vendor = vendor
 
-      
+      # Resolving MACs if they are still unknown
+      source_mac = resolve_mac(source_mac, get_source_mac, packet)
+      dest_mac   = resolve_mac(dest_mac, get_destination_mac, packet)
 
-      if 'UNKNOWN' in source_mac.upper():
-        source_mac = get_source_mac(packet)
-      
-      if 'UNKNOWN' in dest_mac.upper():
-        dest_mac      = get_destination_mac(packet)
-      
+      # Extract OUI if source_mac is known
       if 'UNKNOWN' not in source_mac.upper():
-        source_oui = source_mac[:8]
+          source_oui = source_mac[:8]
 
       for mac_type, details in mac_details.items():
         if 'source'.upper() in mac_type.upper():
@@ -462,37 +491,24 @@ def packet_callback(packet):
       ssid    = extract_ssid(packet)
       channel = current_channel_info['channel']
       band    = current_channel_info['band']
-            
-      if source_oui != None:
-        DeviceType = determine_device_type(source_oui)
+
+
+
+
+      # Step 1: Try to determine device type using source OUI if it's available
+      if source_oui is not None:
+          DeviceType = determine_device_type(source_oui)
+
+      # Step 2: If device type is still unknown, try another method using the packet
       if DeviceType == 'UNKNOWN':
-        DeviceType = determine_device_type_with_packet(packet)  
-      if DeviceType == 'UNKNOWN' and 'MOBILE' in PacketType.upper() :
+          DeviceType = determine_device_type_with_packet(packet)
+
+      # Step 3: As a final fallback, if packet type suggests it's a mobile device, mark it as 'Mobile'
+      if DeviceType == 'UNKNOWN' and 'MOBILE' in PacketType.upper():
           DeviceType = 'Mobile'
-      
 
 
-      #print(f"MAC: {mac}, Vendor Short: {vendor_info[0]}, Vendor Long: {vendor_info[1]}")
-
-
-      #Extract SSID
-      #if packet.haslayer(Dot11ProbeReq):
-      #  ssid = extract_ssid(packet)
-
-      #if packet.haslayer(Dot11Beacon):
-      #  ssid = extract_ssid(packet)
-
-      #PacketWindow.ScrollPrint('source_mac: ' + str(source_mac))
-      #PacketWindow.ScrollPrint('    vendor: ' + str(vendor))
-
-
-      #if packet.haslayer(DHCP):
-      #  PacketWindow.ScrollPrint(f"DHCP Packet (likely phone) from MAC: {source_mac} Vendor: {vendor}")
-        #log_packet(source_mac, vendor, "DHCP")
-    
-      #if packet.haslayer(ARP) and packet[ARP].op == 1:  # ARP request
-      #  PacketWindow.ScrollPrint(f"ARP Packet (likely phone) from MAC: {source_mac} Vendor: {vendor}")
-        #log_packet(source_mac, vendor, "ARP")
+     
     
     except Exception as ErrorMessage:
       TraceMessage   = traceback.format_exc()
@@ -507,7 +523,7 @@ def packet_callback(packet):
 
 
     # Create a unique key for the packet based on important fields
-    packet_key = (source_mac, ssid, vendor, DeviceType)
+    packet_key = (source_mac, ssid, vendor, DeviceType, KeyTime)
 
 
     # Check if the packet information is already in the cache
@@ -545,6 +561,9 @@ def packet_callback(packet):
       #-- Display information
       #-------------------------------
       PacketWindow.ScrollPrint(f'CaptureDate:   {timestamp}')
+      if FriendlyName:
+        PacketWindow.ScrollPrint(f'FriendlyName:  {FriendlyName}')    
+        PacketWindow.ScrollPrint(f'FriendlyType:  {FriendlyType}')    
       PacketWindow.ScrollPrint(f'PacketType:    {PacketType}')
       PacketWindow.ScrollPrint(f'DeviceType:    {DeviceType}')
       PacketWindow.ScrollPrint(f'Source MAC:    {source_mac}')
