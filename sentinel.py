@@ -385,7 +385,7 @@ def determine_device_type_with_packet(packet):
 def search_friendly_devices(mac, friendly_devices):
     for device in friendly_devices:
         if device["MAC"] == mac:
-            return {"FriendlyName": device["FriendlyName"], "Type": device["Type"]}
+            return {"FriendlyName": device["FriendlyName"], "Type": device["Type"], "Brand": device["Brand"]}
     return None  # Return None if MAC is not found
 
 
@@ -425,6 +425,7 @@ def packet_callback(packet):
     ssid          = ''
     FriendlyName  = ''
     FriendlyType  = ''
+    FriendlyBrand = ''
 
 
     def resolve_mac(mac, resolver_function, packet):
@@ -538,7 +539,8 @@ def packet_callback(packet):
       if result:
         FriendlyName = result['FriendlyName']
         FriendlyType = result['Type']
-        DetailsWindow.ScrollPrint(f"{key_count} - {FriendlyName} - {FriendlyType} - {source_vendor} - {ssid}")
+        FriendlyBrand = result['Brand']
+        DetailsWindow.ScrollPrint(f"{key_count} - {FriendlyName} - {FriendlyType} - {FriendlyBrand} - {ssid}")
 
       else:
           DetailsWindow.ScrollPrint(f"{key_count} - {DeviceType} - {source_mac} - {source_vendor} - {ssid}")
