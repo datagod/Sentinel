@@ -210,6 +210,48 @@ class TextWindow(object):
         self.window.refresh()
 
 
+    def UpdateLine(self, row, column, text, Color=2, Bold=False):
+        """
+        Updates the same line of text in the window.
+
+        Parameters:
+        - row, column: Coordinates for where to place the text.
+        - text: The text to display.
+        - Color: Color pair to use (default is 2).
+        - Bold: Whether to display the text in bold (default is False).
+        """
+        try:
+            # Truncate the text if it's longer than the display columns
+            text = text[:self.DisplayColumns - column]
+
+            # Set the color and optionally bold
+            if Bold:
+                self.window.attron(curses.color_pair(Color) | curses.A_BOLD)
+            else:
+                self.window.attron(curses.color_pair(Color))
+
+            # Write the text at the specified row and column
+            self.window.addstr(row, column, text)
+
+            # Turn off the attributes
+            if Bold:
+                self.window.attroff(curses.color_pair(Color) | curses.A_BOLD)
+            else:
+                self.window.attroff(curses.color_pair(Color))
+
+            # Refresh the window to update display
+            self.window.refresh()
+
+        except curses.error as e:
+            # Handle any curses-specific errors
+            logging.debug(f"ERROR: Curses error occurred in UpdateLine: {e}")
+
+        except Exception as ErrorMessage:
+            # Generic error handler
+            TraceMessage = traceback.format_exc()
+            AdditionalInfo = f"Updating Line: row={row}, column={column}, text={text}"
+            self.ErrorHandler(ErrorMessage, TraceMessage, AdditionalInfo)
+
 
     def ErrorHandler(self, ErrorMessage, TraceMessage, AdditionalInfo):
         # Log the error using the logging module
@@ -383,6 +425,8 @@ def initialize_curses(stdscr):
     curses.init_pair(5, curses.COLOR_MAGENTA, curses.COLOR_BLACK)
     curses.init_pair(6, curses.COLOR_CYAN, curses.COLOR_BLACK)
     curses.init_pair(7, curses.COLOR_WHITE, curses.COLOR_BLACK)
+
+
 
 
 

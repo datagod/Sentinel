@@ -59,7 +59,7 @@ DetailsWindow = None
 oui_dict      = None
 vendor_cache  = {}
 write_lock    = threading.Lock()
-hop_interval  = 0.5  # Interval in seconds between channel hops
+hop_interval  = 0.25  # Interval in seconds between channel hops
 current_channel_info    = {"channel": None, "band": None, "frequency": None}
 displayed_packets_cache = {}
 key_count               = 0
@@ -491,7 +491,8 @@ def packet_callback(packet):
       ssid    = extract_ssid(packet)
       channel = current_channel_info['channel']
       band    = current_channel_info['band']
-
+      
+      DetailsWindow.UpdateLine(0,1,f"Band: {band} Channel: {str(channel).ljust(5)}")
 
 
 
@@ -543,7 +544,7 @@ def packet_callback(packet):
         DetailsWindow.ScrollPrint(f"{key_count} - {FriendlyName} - {FriendlyType} - {FriendlyBrand} - {ssid}")
 
       else:
-          DetailsWindow.ScrollPrint(f"{key_count} - {DeviceType} - {source_mac} - {source_vendor} - {ssid}")
+          DetailsWindow.ScrollPrint(f"{key_count} - {DeviceType} - {source_mac} - {source_vendor} - {ssid},",Color=3)
       #DetailsWindow.ScrollPrint(f'CaptureDate:   {timestamp}')
       #DetailsWindow.ScrollPrint(f'PacketType:    {PacketType}')
       #DetailsWindow.ScrollPrint(f'DeviceType:    {DeviceType}')
@@ -553,7 +554,6 @@ def packet_callback(packet):
       #DetailsWindow.ScrollPrint(f'Dest Vendor:   {dest_vendor}')
       #DetailsWindow.ScrollPrint(f'SSID:          {ssid}')
       #DetailsWindow.ScrollPrint(f'Band:          {band}')
-      #DetailsWindow.ScrollPrint(f'channel:       {channel}')
       
       #ignore routers for now
       #ignore Huawei which is my AMCREST cameras
