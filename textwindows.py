@@ -279,6 +279,70 @@ class TextWindow(object):
 
 
 
+
+
+
+class HeaderWindow(TextWindow):
+    def __init__(self, name, title, rows, columns, y1, x1, ShowBorder, BorderColor, TitleColor, fixed_lines):
+        """
+        Initialize the HeaderWindow.
+
+        Args:
+            name, title, rows, columns, y1, x1, ShowBorder, BorderColor, TitleColor:
+                Parameters to pass to the TextWindow initializer.
+            fixed_lines (list or dict): A list of tuples [(row, text)] or a dictionary {row: text}.
+        """
+        super().__init__(name, title, rows, columns, y1, x1, ShowBorder, BorderColor, TitleColor)
+        
+        # Convert to dictionary if fixed_lines is a list
+        if isinstance(fixed_lines, list):
+            self.fixed_lines = dict(fixed_lines)  # Convert list of tuples to dict
+        elif isinstance(fixed_lines, dict):
+            self.fixed_lines = fixed_lines
+        else:
+            raise ValueError("fixed_lines must be a list of (row, text) tuples or a dictionary {row: text}.")
+        
+        self._initialize_fixed_lines()
+
+    def _initialize_fixed_lines(self):
+        """Sets the initial content for all fixed lines."""
+        for row, text in self.fixed_lines.items():
+            if 0 <= row < self.DisplayRows:  # Ensure rows are within bounds
+                self.UpdateLine(row, 1, text, Color=self.TitleColor, Bold=True)
+            else:
+                raise ValueError(f"Row {row} is out of bounds for the HeaderWindow.")
+
+    def update_fixed_line(self, row, text, Color):
+        """
+        Update a specific fixed line.
+
+        Args:
+            row (int): The row number to update.
+            text (str): The new text for the fixed line.
+        """
+        if row in self.fixed_lines:
+            self.fixed_lines[row] = text
+            self.UpdateLine(row, 1, text, Color=Color, Bold=True)
+        else:
+            raise ValueError(f"Row {row} is not defined as a fixed header line.")
+
+    def set_fixed_lines(self, updates, Color):
+        """
+        Update multiple fixed lines at once.
+
+        Args:
+            updates (dict): A dictionary of updates {row: new_text}.
+        """
+        for row, text in updates.items():
+            self.update_fixed_line(row, text,Color)
+
+    def refresh_header(self):
+        """Re-draw all fixed lines."""
+        self._initialize_fixed_lines()
+        self.refresh()
+
+
+
 class TextPad(object):
     def __init__(self, name, rows, columns, y1, x1, y2, x2, ShowBorder, BorderColor):
         max_y, max_x = curses.LINES - 1, curses.COLS - 1
@@ -428,5 +492,12 @@ def initialize_curses(stdscr):
 
 
 
+
+def get_screen_dimensions(stdscr):
+    # Get the screen dimensions
+    height, width = stdscr.getmaxyx()
+    return height, width
+
+curses.wrapper(lambda stdscr: print(get_screen_dimensions(stdscr)))
 
 

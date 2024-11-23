@@ -53,9 +53,6 @@ from device_type_dict import device_type_dict
 
 
 #Global Variables
-InfoWindow    = None
-PacketWindow  = None
-DetailsWindow = None
 oui_dict      = None
 vendor_cache  = {}
 write_lock    = threading.Lock()
@@ -63,8 +60,18 @@ hop_interval  = 0.25  # Interval in seconds between channel hops
 current_channel_info    = {"channel": None, "band": None, "frequency": None}
 displayed_packets_cache = {}
 key_count               = 0
-HorizontalWindowCount   = 5
 friendly_devices_dict   = None
+PacketCount             = 0
+
+#Windows variables
+HeaderWindow  = None
+InfoWindow    = None
+PacketWindow  = None
+DetailsWindow = None
+HorizontalWindowCount = 4
+HeaderHeight  = 15
+HeaderWidth   = 80
+
 
 
 #--------------------------------------------------------------------
@@ -401,6 +408,8 @@ def search_friendly_devices(mac, friendly_devices):
 #-------------------------------
 
 def packet_callback(packet):
+    
+    global HeaderWindow
     global PacketWindow
     global InfoWindow
     global DetailsWindow
@@ -409,8 +418,10 @@ def packet_callback(packet):
     global current_channel_info
     global displayed_packets_cache
     global key_count
+    global PacketCount
 
     count         = 0
+    PacketCount   = PacketCount + 1
     source_vendor = ''
     dest_vendor   = ''
     channel       = 0
@@ -426,7 +437,12 @@ def packet_callback(packet):
     FriendlyName  = ''
     FriendlyType  = ''
     FriendlyBrand = ''
+    PacketKey     = ''
 
+    HeaderLines = {
+    1: f"Packets: {PacketCount}",
+    2:  "Status:  OK" }
+    HeaderWindow.set_fixed_lines(HeaderLines,Color=2)
 
     def resolve_mac(mac, resolver_function, packet):
         if 'UNKNOWN' in mac.upper():
@@ -493,6 +509,9 @@ def packet_callback(packet):
       band    = current_channel_info['band']
       
       DetailsWindow.UpdateLine(0,1,f"Band: {band} Channel: {str(channel).ljust(5)}")
+      
+      
+      #HeaderWindow.UpdateLine(1,1,f"Packets: {PacketCount}")
 
 
 
@@ -508,7 +527,8 @@ def packet_callback(packet):
       if DeviceType == 'UNKNOWN' and 'MOBILE' in PacketType.upper():
           DeviceType = 'Mobile'
 
-
+      # Create a unique key for the packet based on important fields
+      packet_key = (source_mac, ssid, vendor, DeviceType)
      
     
     except Exception as ErrorMessage:
@@ -521,10 +541,6 @@ def packet_callback(packet):
 
     
 
-
-
-    # Create a unique key for the packet based on important fields
-    packet_key = (source_mac, ssid, vendor, DeviceType)
 
 
     # Check if the packet information is already in the cache
@@ -576,6 +592,16 @@ def packet_callback(packet):
       PacketWindow.ScrollPrint(f'channel:       {channel}')
       #PacketWindow.ScrollPrint(f': {}')
       PacketWindow.ScrollPrint('---------------------------------------------------')
+
+    
+    
+
+
+
+
+
+
+
 
     #time.sleep(0.25)
 
@@ -1199,11 +1225,9 @@ def channel_hopper(interface, hop_interval):
 
 
 
-
-
-
 # Integrate channel hopping in the main function
 def main(stdscr):
+    global HeaderWindow
     global PacketWindow
     global InfoWindow
     global DetailsWindow
@@ -1212,23 +1236,52 @@ def main(stdscr):
     global hop_interval
 
     looping = True
+    
 
     # Call the helper function to initialize curses
     textwindows.initialize_curses(stdscr)
 
+
+    ScreenHeight, ScreenWidth = textwindows.get_screen_dimensions(stdscr)
+    
+
     # Calculate window sizes for display
     max_y, max_x = stdscr.getmaxyx()
     window_width = max_x // HorizontalWindowCount
+    
 
     # Create display windows
-    PacketWindow = textwindows.TextWindow('PacketWindow', title='Packets', rows=max_y - 1, columns=window_width, y1=0, x1=0, ShowBorder='Y', BorderColor=2, TitleColor=3)
-    DetailsWindow = textwindows.TextWindow('DetailsWindow', title='Details', rows=max_y - 1, columns=window_width, y1=0, x1=window_width + 1, ShowBorder='Y', BorderColor=2, TitleColor=3)
-    InfoWindow = textwindows.TextWindow('InfoWindow', title='Extra Info', rows=max_y - 1, columns=window_width, y1=0, x1=window_width * 2 + 1, ShowBorder='Y', BorderColor=2, TitleColor=3)
+    fixed_lines = [
+        (0, "Packets: "),
+        (1, "Status: "),
+        (2, ""),
+    ]
+
+
+    fixed_lines = [
+    (1, "Welcome to Sentinel!"),
+    (2, "Status: Initializing..."),
+    (3, "Last Update: None"),
+    ]
+
+    HeaderWindow  = textwindows.HeaderWindow(name='HeaderWindow', title='Header',    rows= HeaderHeight, columns=window_width, y1=0, x1=0, ShowBorder='Y', BorderColor=2, TitleColor=3,fixed_lines=fixed_lines)
+    PacketWindow  = textwindows.TextWindow  (name='PacketWindow', title='Packets',   rows=max_y - 1,     columns=window_width, y1=(HeaderHeight + 1), x1=0, ShowBorder='Y', BorderColor=2, TitleColor=3)
+    DetailsWindow = textwindows.TextWindow  (name='DetailsWindow',title='Details',   rows=max_y - 1,     columns=window_width, y1=(HeaderHeight + 1), x1=window_width + 1, ShowBorder='Y', BorderColor=2, TitleColor=3)
+    InfoWindow    = textwindows.TextWindow  (name='InfoWindow',   title='Extra Info',rows=max_y - 1,     columns=window_width, y1=(HeaderHeight + 1), x1=window_width * 2 + 1, ShowBorder='Y', BorderColor=2, TitleColor=3)
+
+
+    
+
 
     # Refresh windows for initial setup
+    HeaderWindow.DisplayTitle('Sentinel 1.0')
+    HeaderWindow.refresh()
     PacketWindow.refresh()
     InfoWindow.refresh()
     DetailsWindow.refresh()
+
+
+    InfoWindow.ScrollPrint(f"Height x Width {ScreenHeight}x{ScreenWidth}")    
 
     # Load the OUI dictionary
     oui_dict = load_oui_dict_from_json("oui_dict.json")
