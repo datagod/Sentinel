@@ -64,6 +64,7 @@ key_count               = 0
 friendly_devices_dict   = None
 PacketCount             = 0
 PacketQueue             = queue.Queue()
+FriendlyDeviceCount     = 0
 
 
 #Windows variables
@@ -450,6 +451,7 @@ def process_packet(packet):
     global displayed_packets_cache
     global key_count
     global PacketCount
+    global FriendlyDeviceCount
 
     count         = 0
     PacketCount   = PacketCount + 1
@@ -568,16 +570,6 @@ def process_packet(packet):
       InfoWindow.ScrollPrint(f"Error parsing packet: {ErrorMessage}")
 
     
-    queue_size = PacketQueue.qsize()
-    
-    HeaderLines = {
-      1: f"Packets Processed: {PacketCount}",
-      2: f"Band:              {band}",
-      3: f"Channel:           {str(channel).ljust(5)}",
-      4: f"Packet Queue Size: {queue_size}",
-    }
-
-    HeaderWindow.set_fixed_lines(HeaderLines,Color=2)
 
 
     # Check if the packet information is already in the cache
@@ -591,6 +583,7 @@ def process_packet(packet):
       #Check for friendly device
       result = search_friendly_devices(source_mac,friendly_devices_dict)
       if result:
+        FriendlyDeviceCount = FriendlyDeviceCount +1
         FriendlyName = result['FriendlyName']
         FriendlyType = result['Type']
         FriendlyBrand = result['Brand']
@@ -611,6 +604,10 @@ def process_packet(packet):
       #ignore routers for now
       #ignore Huawei which is my AMCREST cameras
       #if 'ROUTER' not in PacketType.upper() and 'HUAWEI' not in dest_vendor.upper() and 'HUAWEI' not in source_vendor.upper():
+
+
+
+
       #-------------------------------
       #-- Display information
       #-------------------------------
@@ -633,6 +630,21 @@ def process_packet(packet):
     
     
 
+    #-------------------------------
+    #-- Update Header
+    #-------------------------------
+    queue_size = PacketQueue.qsize()
+    
+    HeaderLines = {
+      1: f"Packets Processed: {PacketCount}",
+      2: f"Band:              {band}",
+      3: f"Channel:           {str(channel).ljust(5)}",
+      4: f"Packet Queue Size: {queue_size}",
+      5: f"Friendly Devices:  {FriendlyDeviceCount}",
+      6: f"Total Devices:     {key_count}",
+    }
+
+    HeaderWindow.set_fixed_lines(HeaderLines,Color=2)
 
 
 
@@ -1182,7 +1194,7 @@ def print_oui_stats(oui_dict,InfoWindow):
     InfoWindow.ScrollPrint(f"Vendors with Multiple OUIs: {len(vendors_with_multiple_ouis)}")
 
     # Print top vendors with the most OUI entries
-    InfoWindow.ScrollPrint("\nTop 25 Vendors with the Most OUI Entries:")
+    InfoWindow.ScrollPrint("Top 25 Vendors with the Most OUI Entries:")
     for vendor, count in vendor_counter.most_common(25):
         InfoWindow.ScrollPrint(f"{vendor}: {count} entries")
 
@@ -1269,6 +1281,7 @@ def main(stdscr):
     global oui_dict
     global friendly_devices_dict
     global hop_interval
+    
 
     looping = True
     
@@ -1292,23 +1305,33 @@ def main(stdscr):
         (3, ""),
         (4, ""),
         (5, ""),
+        (6, ""),
+        (7, ""),
+        (8, ""),
+        (9, ""),
     ]
    
-    HeaderWindow  = textwindows.HeaderWindow(name='HeaderWindow', title='Header',    rows= HeaderHeight, columns=window_width, y1=0, x1=0, ShowBorder='Y', BorderColor=2, TitleColor=3,fixed_lines=fixed_lines)
-    PacketWindow  = textwindows.TextWindow  (name='PacketWindow', title='Packets',   rows=max_y - 1,     columns=window_width, y1=(HeaderHeight + 1), x1=0, ShowBorder='Y', BorderColor=2, TitleColor=3)
-    DetailsWindow = textwindows.TextWindow  (name='DetailsWindow',title='Details',   rows=max_y - 1,     columns=window_width, y1=(HeaderHeight + 1), x1=window_width + 1, ShowBorder='Y', BorderColor=2, TitleColor=3)
-    InfoWindow    = textwindows.TextWindow  (name='InfoWindow',   title='Extra Info',rows=max_y - 1,     columns=window_width, y1=(HeaderHeight + 1), x1=window_width * 2 + 1, ShowBorder='Y', BorderColor=2, TitleColor=3)
+    HeaderWindow  = textwindows.HeaderWindow(name='HeaderWindow', title='Header',    rows= HeaderHeight, columns=window_width, y1=0, x1=0,                                     ShowBorder='Y', BorderColor=2, TitleColor=3,fixed_lines=fixed_lines)
+    PacketWindow  = textwindows.TextWindow  (name='PacketWindow', title='Packets',   rows=max_y - 1,     columns=window_width, y1=(HeaderHeight + 1), x1=0,                    ShowBorder='Y', BorderColor=2, TitleColor=2)
+    DetailsWindow = textwindows.TextWindow  (name='DetailsWindow',title='Details',   rows=max_y - 1,     columns=window_width, y1=(HeaderHeight + 1), x1=window_width + 1,     ShowBorder='Y', BorderColor=2, TitleColor=2)
+    InfoWindow    = textwindows.TextWindow  (name='InfoWindow',   title='Extra Info',rows=max_y - 1,     columns=window_width, y1=(HeaderHeight + 1), x1=window_width * 2 + 1, ShowBorder='Y', BorderColor=2, TitleColor=2)
 
 
 
     # Refresh windows for initial setup
     HeaderWindow.DisplayTitle('Sentinel 1.0')
     HeaderWindow.refresh()
+
+    PacketWindow.DisplayTitle('Packet Info')
     PacketWindow.refresh()
+    
+    InfoWindow.DisplayTitle('Information')
     InfoWindow.refresh()
+    
+    DetailsWindow.DisplayTitle('Details')
     DetailsWindow.refresh()
 
-
+    
     InfoWindow.ScrollPrint(f"Height x Width {ScreenHeight}x{ScreenWidth}")    
 
     # Load the OUI dictionary

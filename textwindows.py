@@ -123,7 +123,7 @@ class TextWindow(object):
                 if self.CurrentRow >= self.DisplayRows or self.CurrentRow < 0:
                     #logging.debug("WARNING: CurrentRow is out of bounds, adjusting row number.\n")
                     #logging.debug(f"CurrentRow: {self.CurrentRow}, DisplayRows: {self.DisplayRows}, StartColumn: {self.StartColumn}, PrintableString: '{PrintableString}'\n")
-                    self.CurrentRow = 0  # Reset or handle accordingly
+                    self.CurrentRow = 1  # Reset or handle accordingly
 
                 self.window.attron(curses.color_pair(self.PreviousLineColor))
                 self.window.addstr(self.PreviousLineRow, self.StartColumn, self.PreviousLineText)
@@ -153,8 +153,8 @@ class TextWindow(object):
                     self.CurrentRow = 0
 
             # Draw border and refresh
-            if self.ShowBorder == 'Y':
-                self.window.border()
+            #if self.ShowBorder == 'Y':
+            #    self.window.border()
             self.window.refresh()
 
         except curses.error as e:
