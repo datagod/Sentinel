@@ -29,6 +29,7 @@ Date            | Author         | Description
 
 
 import curses
+import queue
 import textwindows
 import time
 import os
@@ -56,12 +57,14 @@ from device_type_dict import device_type_dict
 oui_dict      = None
 vendor_cache  = {}
 write_lock    = threading.Lock()
-hop_interval  = 0.25  # Interval in seconds between channel hops
+hop_interval  = 1  # Interval in seconds between channel hops
 current_channel_info    = {"channel": None, "band": None, "frequency": None}
 displayed_packets_cache = {}
 key_count               = 0
 friendly_devices_dict   = None
 PacketCount             = 0
+PacketQueue             = queue.Queue()
+
 
 #Windows variables
 HeaderWindow  = None
@@ -408,6 +411,34 @@ def search_friendly_devices(mac, friendly_devices):
 #-------------------------------
 
 def packet_callback(packet):
+    try:
+        # Add packet to the queue for processing by another thread
+        PacketQueue.put(packet)
+    except Exception as e:
+        TraceMessage = traceback.format_exc()
+        InfoWindow.ErrorHandler(str(e), TraceMessage, "Error in packet callback")
+
+
+def process_packets():
+    global PacketWindow, InfoWindow, DetailsWindow
+
+    while True:
+        try:
+            # Retrieve a packet from the queue (wait indefinitely if empty)
+            packet = PacketQueue.get()
+
+            process_packet(packet)
+
+            # Signal that processing of this item is done
+            PacketQueue.task_done()
+
+        except Exception as e:
+            TraceMessage = traceback.format_exc()
+            InfoWindow.ErrorHandler(str(e), TraceMessage, "Error in packet processing thread")
+
+
+
+def process_packet(packet):
     
     global HeaderWindow
     global PacketWindow
@@ -439,10 +470,8 @@ def packet_callback(packet):
     FriendlyBrand = ''
     PacketKey     = ''
 
-    HeaderLines = {
-    1: f"Packets: {PacketCount}",
-    2:  "Status:  OK" }
-    HeaderWindow.set_fixed_lines(HeaderLines,Color=2)
+
+    
 
     def resolve_mac(mac, resolver_function, packet):
         if 'UNKNOWN' in mac.upper():
@@ -508,8 +537,7 @@ def packet_callback(packet):
       channel = current_channel_info['channel']
       band    = current_channel_info['band']
       
-      DetailsWindow.UpdateLine(0,1,f"Band: {band} Channel: {str(channel).ljust(5)}")
-      
+      #DetailsWindow.UpdateLine(0,1,f"Band: {band} Channel: {str(channel).ljust(5)}")
       
       #HeaderWindow.UpdateLine(1,1,f"Packets: {PacketCount}")
 
@@ -540,7 +568,16 @@ def packet_callback(packet):
       InfoWindow.ScrollPrint(f"Error parsing packet: {ErrorMessage}")
 
     
+    queue_size = PacketQueue.qsize()
+    
+    HeaderLines = {
+      1: f"Packets Processed: {PacketCount}",
+      2: f"Band:              {band}",
+      3: f"Channel:           {str(channel).ljust(5)}",
+      4: f"Packet Queue Size: {queue_size}",
+    }
 
+    HeaderWindow.set_fixed_lines(HeaderLines,Color=2)
 
 
     # Check if the packet information is already in the cache
@@ -1159,8 +1196,6 @@ def print_oui_stats(oui_dict,InfoWindow):
 #  MAIN PROCESSING                                        #
 ###########################################################
 
-
-
 def channel_hopper(interface, hop_interval):
     global current_channel_info
 
@@ -1241,9 +1276,7 @@ def main(stdscr):
     # Call the helper function to initialize curses
     textwindows.initialize_curses(stdscr)
 
-
     ScreenHeight, ScreenWidth = textwindows.get_screen_dimensions(stdscr)
-    
 
     # Calculate window sizes for display
     max_y, max_x = stdscr.getmaxyx()
@@ -1251,26 +1284,21 @@ def main(stdscr):
     
 
     # Create display windows
+
     fixed_lines = [
-        (0, "Packets: "),
-        (1, "Status: "),
+        (0, ""),
+        (1, ""),
         (2, ""),
+        (3, ""),
+        (4, ""),
+        (5, ""),
     ]
-
-
-    fixed_lines = [
-    (1, "Welcome to Sentinel!"),
-    (2, "Status: Initializing..."),
-    (3, "Last Update: None"),
-    ]
-
+   
     HeaderWindow  = textwindows.HeaderWindow(name='HeaderWindow', title='Header',    rows= HeaderHeight, columns=window_width, y1=0, x1=0, ShowBorder='Y', BorderColor=2, TitleColor=3,fixed_lines=fixed_lines)
     PacketWindow  = textwindows.TextWindow  (name='PacketWindow', title='Packets',   rows=max_y - 1,     columns=window_width, y1=(HeaderHeight + 1), x1=0, ShowBorder='Y', BorderColor=2, TitleColor=3)
     DetailsWindow = textwindows.TextWindow  (name='DetailsWindow',title='Details',   rows=max_y - 1,     columns=window_width, y1=(HeaderHeight + 1), x1=window_width + 1, ShowBorder='Y', BorderColor=2, TitleColor=3)
     InfoWindow    = textwindows.TextWindow  (name='InfoWindow',   title='Extra Info',rows=max_y - 1,     columns=window_width, y1=(HeaderHeight + 1), x1=window_width * 2 + 1, ShowBorder='Y', BorderColor=2, TitleColor=3)
 
-
-    
 
 
     # Refresh windows for initial setup
@@ -1298,6 +1326,11 @@ def main(stdscr):
         InfoWindow.ScrollPrint("ERROR: No interface found in monitor mode. Exiting...")
         return
 
+    # Create and start the packet processing thread
+    packet_processing_thread = threading.Thread(target=process_packets)
+    packet_processing_thread.daemon = True  # Set as daemon so it exits with the main program
+    packet_processing_thread.start()
+    
     # Start the channel hopper thread
     hopper_thread = threading.Thread(target=channel_hopper, args=(interface, hop_interval))
     hopper_thread.daemon = True
