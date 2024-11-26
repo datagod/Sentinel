@@ -33,6 +33,7 @@ import queue
 import textwindows
 import time
 import os
+import sqlite3
 from datetime import datetime  # Import only what's needed for clarity
 import csv
 import subprocess
@@ -64,8 +65,11 @@ key_count               = 0
 friendly_devices_dict   = None
 PacketCount             = 0
 PacketQueue             = queue.Queue()
+DBQueue                 = queue.Queue()
 FriendlyDeviceCount     = 0
-
+PacketDB                = "packet.db"
+DBConnection            = None
+PacketsSavedToDBCount   = 0
 
 #Windows variables
 HeaderWindow  = None
@@ -403,6 +407,66 @@ def search_friendly_devices(mac, friendly_devices):
 
 
 
+#-------------------------------
+#-- Database Functions
+#-------------------------------
+
+
+
+def save_DB_Packet(DBPacket):
+    """
+    Insert packet information into the Packet table.
+
+    :param packet_info: A dictionary containing packet details.
+    :param db_path: Path to the SQLite database file.
+    """
+    global InfoWindow
+    global DBConnection
+
+
+    try:
+        # Connect to the SQLite database
+        #InfoWindow.ScrollPrint("Connection Open")
+        cursor = DBConnection.cursor()
+
+
+        # Define SQL statement to insert packet data
+        insert_query = '''
+        INSERT INTO Packet (
+            FriendlyName, FriendlyType, PacketType, DeviceType, 
+            SourceMAC, SourceVendor, DestMAC, DestVendor, 
+            SSID, Band, Channel
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        '''
+
+        # Execute the insert statement with provided packet information
+        cursor.execute(insert_query, (
+            DBPacket.get('FriendlyName'),
+            DBPacket.get('FriendlyType'),
+            DBPacket.get('PacketType'),
+            DBPacket.get('DeviceType'),
+            DBPacket.get('SourceMAC'),
+            DBPacket.get('SourceVendor'),
+            DBPacket.get('DestMAC'),
+            DBPacket.get('DestVendor'),
+            DBPacket.get('SSID'),
+            DBPacket.get('Band'),
+            DBPacket.get('Channel')
+        ))
+
+        # Commit the changes 
+        DBConnection.commit()
+        #InfoWindow.ScrollPrint("Connection Closed")
+
+        
+        #print("Packet data inserted successfully.")
+    except sqlite3.Error as e:
+        InfoWindow.ScrollPrint(f"SQLite error: {e}")
+    #finally:
+        # Ensure the connection is closed
+        #conn.close()
+        #print("Insert operation complete.")
+
 
 
 
@@ -413,16 +477,18 @@ def search_friendly_devices(mac, friendly_devices):
 
 def packet_callback(packet):
     try:
-        # Add packet to the queue for processing by another thread
+        # Add packet to the queues for processing and saving by other threads
         PacketQueue.put(packet)
+        
     except Exception as e:
         TraceMessage = traceback.format_exc()
-        InfoWindow.ErrorHandler(str(e), TraceMessage, "Error in packet callback")
+        InfoWindow.ErrorHandler(str(e), TraceMessage, "**Error in packet callback**")
 
 
-def process_packets():
-    global PacketWindow, InfoWindow, DetailsWindow
+def process_PacketQueue():
+    global InfoWindow
 
+    
     while True:
         try:
             # Retrieve a packet from the queue (wait indefinitely if empty)
@@ -439,6 +505,40 @@ def process_packets():
 
 
 
+def process_DBQueue():
+    global InfoWindow
+    global DBQueue
+    global PacketsSavedToDBCount
+    global PacketDB
+    global DBConnection
+
+    #Database connections
+    DBConnection = sqlite3.connect(PacketDB)
+    InfoWindow.ScrollPrint("Database connection established.")
+
+
+    while True:
+        try:
+            # Retrieve a packet from the DBqueue (wait indefinitely if empty)
+            DBpacket = DBQueue.get()
+            #InfoWindow.ScrollPrint("Got a packet from the DBQueue")
+
+            save_DB_Packet(DBpacket)
+            PacketsSavedToDBCount = PacketsSavedToDBCount + 1
+            # Signal that processing of this item is done
+            DBQueue.task_done()
+
+        except Exception as e:
+            TraceMessage = traceback.format_exc()
+            InfoWindow.ErrorHandler(str(e), TraceMessage, "Error in DBQueue processing thread")
+
+
+
+#------------------------------------
+#-- Process Packet and Display Info
+#------------------------------------
+
+
 def process_packet(packet):
     
     global HeaderWindow
@@ -452,6 +552,8 @@ def process_packet(packet):
     global key_count
     global PacketCount
     global FriendlyDeviceCount
+    global DBQueue
+    global PacketsSavedToDBCount
 
     count         = 0
     PacketCount   = PacketCount + 1
@@ -470,7 +572,9 @@ def process_packet(packet):
     FriendlyName  = ''
     FriendlyType  = ''
     FriendlyBrand = ''
-    PacketKey     = ''
+    PacketKey     = None
+
+
 
 
     
@@ -590,7 +694,49 @@ def process_packet(packet):
         DetailsWindow.ScrollPrint(f"{key_count} - {FriendlyName} - {FriendlyType} - {FriendlyBrand} - {ssid}")
 
       else:
+          PacketWindow.ScrollPrint('INTRUDER DETAILS',Color=1)
           DetailsWindow.ScrollPrint(f"{key_count} - {DeviceType} - {source_mac} - {source_vendor} - {ssid},",Color=3)
+          PacketWindow.ScrollPrint(f'CaptureDate:   {timestamp}')
+          if FriendlyName:
+              PacketWindow.ScrollPrint(f'FriendlyName:  {FriendlyName}')    
+              PacketWindow.ScrollPrint(f'FriendlyType:  {FriendlyType}')    
+          
+          
+          PacketWindow.ScrollPrint(f'PacketType:    {PacketType}')
+          PacketWindow.ScrollPrint(f'DeviceType:    {DeviceType}')
+          PacketWindow.ScrollPrint(f'Source MAC:    {source_mac}')
+          PacketWindow.ScrollPrint(f'Source Vendor: {source_vendor}')
+          PacketWindow.ScrollPrint(f'Dest MAC:      {dest_mac}')
+          PacketWindow.ScrollPrint(f'Dest Vendor:   {dest_vendor}')
+          PacketWindow.ScrollPrint(f'SSID:          {ssid}')
+          PacketWindow.ScrollPrint(f'Band:          {band}')
+          PacketWindow.ScrollPrint(f'channel:       {channel}')
+          PacketWindow.ScrollPrint('---------------------------------------------------')
+
+    
+          #--------------------------------------
+          #-- Save processed packet to DB Queue
+          #--------------------------------------
+          # For now we save Intruder details to the database
+          DBPacket = {
+            'CaptureDate' : timestamp,
+            'FriendlyName': FriendlyName,
+            'FriendlyType': FriendlyType,
+            'PacketType'  : PacketType,
+            'DeviceType'  : DeviceType,
+            'SourceMAC'   : source_mac,
+            'SourceVendor': source_vendor,
+            'DestMAC'     : dest_mac,
+            'DestVendor'  : dest_vendor,
+            'SSID'        : ssid,
+            'Band'        : band,
+            'Channel'     : channel}
+        
+          DBQueue.put(DBPacket)
+          #insert_packet(DBPacket, db_path=PacketDB)
+
+
+
       #DetailsWindow.ScrollPrint(f'CaptureDate:   {timestamp}')
       #DetailsWindow.ScrollPrint(f'PacketType:    {PacketType}')
       #DetailsWindow.ScrollPrint(f'DeviceType:    {DeviceType}')
@@ -606,7 +752,7 @@ def process_packet(packet):
       #if 'ROUTER' not in PacketType.upper() and 'HUAWEI' not in dest_vendor.upper() and 'HUAWEI' not in source_vendor.upper():
 
 
-
+      '''
 
       #-------------------------------
       #-- Display information
@@ -627,28 +773,28 @@ def process_packet(packet):
       #PacketWindow.ScrollPrint(f': {}')
       PacketWindow.ScrollPrint('---------------------------------------------------')
 
-    
-    
-
+      '''    
     #-------------------------------
     #-- Update Header
     #-------------------------------
-    queue_size = PacketQueue.qsize()
+    packetqueue_size = PacketQueue.qsize()
+    dbqueue_size     = DBQueue.qsize()
     
     HeaderLines = {
-      1: f"Packets Processed: {PacketCount}",
-      2: f"Band:              {band}",
-      3: f"Channel:           {str(channel).ljust(5)}",
-      4: f"Packet Queue Size: {queue_size}",
-      5: f"Friendly Devices:  {FriendlyDeviceCount}",
-      6: f"Total Devices:     {key_count}",
+      1: f"Packets Processed:   {PacketCount}",
+      2: f"Band:                {band}",
+      3: f"Channel:             {str(channel).ljust(5)}",
+      4: f"Packet Queue Size:   {packetqueue_size}",
+      5: f"DB Queue Size:       {dbqueue_size}",
+      6: f"Packets Saved to DB: {PacketsSavedToDBCount}",
+      7: f"Friendly Devices:    {FriendlyDeviceCount}",
+      8: f"Total Devices:       {key_count}",
     }
 
     HeaderWindow.set_fixed_lines(HeaderLines,Color=2)
 
 
-
-
+    
 
 
 
@@ -775,7 +921,7 @@ def sniff_packets(interface):
         InfoWindow.ScrollPrint(PrintLine='Stopping...')
     except Exception as ErrorMessage:
         TraceMessage   = traceback.format_exc()
-        InfoWindow.ErrorHandler(ErrorMessage,TraceMessage,'')
+        InfoWindow.ErrorHandler(ErrorMessage,TraceMessage,'Erroor in sniff_packets function')
 
 
 def format_packet(packet):
@@ -966,8 +1112,9 @@ def extract_oui_and_vendor_information(packet):
           vendor = MAC.oui.registration().org
         except netaddr.core.NotRegisteredError:
             vendor = 'Unknown'
+            return 'Unknown','Unknown'
         except ValueError:
-            vendor = 'Unknown'
+            return 'Unknown','Unknown'
 
         vendor_cache[mac_prefix] = vendor
 
@@ -1281,6 +1428,8 @@ def main(stdscr):
     global oui_dict
     global friendly_devices_dict
     global hop_interval
+    global PacketDB
+    global DBConnection
     
 
     looping = True
@@ -1297,7 +1446,6 @@ def main(stdscr):
     
 
     # Create display windows
-
     fixed_lines = [
         (0, ""),
         (1, ""),
@@ -1349,18 +1497,27 @@ def main(stdscr):
         InfoWindow.ScrollPrint("ERROR: No interface found in monitor mode. Exiting...")
         return
 
+
+    
+
+
     # Create and start the packet processing thread
-    packet_processing_thread = threading.Thread(target=process_packets)
+    packet_processing_thread = threading.Thread(target=process_PacketQueue, name="PacketProcessingThread")
     packet_processing_thread.daemon = True  # Set as daemon so it exits with the main program
     packet_processing_thread.start()
-    
+
+    # Create and start the DB processing thread
+    DB_processing_thread = threading.Thread(target=process_DBQueue, name="DBProcessingThread")
+    DB_processing_thread.daemon = True  # Set as daemon so it exits with the main program
+    DB_processing_thread.start()
+
     # Start the channel hopper thread
-    hopper_thread = threading.Thread(target=channel_hopper, args=(interface, hop_interval))
+    hopper_thread = threading.Thread(target=channel_hopper, args=(interface, hop_interval), name="ChannelHopperThread")
     hopper_thread.daemon = True
     hopper_thread.start()
 
-    # Start packet sniffing
-    sniff_thread = threading.Thread(target=sniff_packets, args=(interface,))
+    # Start packet sniffing thread
+    sniff_thread = threading.Thread(target=sniff_packets, args=(interface,), name="SniffingThread")
     sniff_thread.daemon = True  # Allows the program to exit even if the thread is running
     sniff_thread.start()
 
