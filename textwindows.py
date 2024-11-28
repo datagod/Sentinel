@@ -46,8 +46,57 @@ import inspect
 import logging
 
 
+class BaseTextInterface:
+    def __init__(self, name):
+        self.name = name
+        # Setup logging once
+        logging.basicConfig(filename=f'{self.name}.log', level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
-class TextWindow(object):
+    def error_handler(self, error_message, trace_message, additional_info=""):
+        # Log the error
+        logging.debug(f"ERROR: {error_message}")
+        logging.debug(f"TRACE: {trace_message}")
+        if additional_info:
+            logging.debug(f"Additional Info: {additional_info}")
+
+        # Optionally print to console
+        # print("ERROR - An error occurred in TextWindow or TextPad class.")
+        # print(error_message)
+        # print("TRACE")
+        # print(trace_message)
+        # if additional_info:
+        #     print("Additional info:", additional_info)
+
+
+
+
+    def ErrorHandler(self, ErrorMessage, TraceMessage, AdditionalInfo):
+        # Log the error using the logging module
+        logging.debug(f"ERROR: {ErrorMessage}")
+        logging.debug(f"TRACE: {TraceMessage}")
+        if AdditionalInfo:
+            logging.debug(f"Additional Info: {AdditionalInfo}")
+
+        # Also print to console if necessary
+        #print("ERROR - An error occurred in TextWindow or TextPad class.")
+        #print(ErrorMessage)
+        #print("TRACE")
+        #print(TraceMessage)
+        #if AdditionalInfo:
+        #    print("Additional info:", AdditionalInfo)
+
+
+        # Optional delay to give time for users to read the error (if used interactively)
+        time.sleep(5)
+
+
+
+    def log_debug(self, message):
+        logging.debug(message)
+
+
+
+class TextWindow(BaseTextInterface):
     def __init__(self, name, title, rows, columns, y1, x1, ShowBorder, BorderColor, TitleColor):
         max_y, max_x = curses.LINES - 1, curses.COLS - 1
         self.rows = min(rows, max_y - y1)
@@ -102,8 +151,9 @@ class TextWindow(object):
         # Debugging: Log the input line details
         #logging.debug(f"ScrollPrint called with: PrintLine='{PrintLine}', Color={Color}, TimeStamp={TimeStamp}, BoldLine={BoldLine}")
         
-        # Convert PrintLine to string, remove nulls and special characters
+        # Convert PrintLine to string, remove nulls, special characters, and newlines
         PrintLine = str(PrintLine).replace('\0', '')  # Remove any embedded null characters
+        PrintLine = PrintLine.replace('\n', ' ')  # Remove newline characters
         PrintLine = PrintLine.encode('utf-8', 'replace').decode('utf-8')
         current_time = datetime.now().strftime("%H:%M:%S")
 
@@ -253,28 +303,6 @@ class TextWindow(object):
             self.ErrorHandler(ErrorMessage, TraceMessage, AdditionalInfo)
 
 
-    def ErrorHandler(self, ErrorMessage, TraceMessage, AdditionalInfo):
-        # Log the error using the logging module
-        logging.debug(f"ERROR: {ErrorMessage}")
-        logging.debug(f"TRACE: {TraceMessage}")
-        if AdditionalInfo:
-            logging.debug(f"Additional Info: {AdditionalInfo}")
-
-        # Also print to console if necessary
-        #print("ERROR - An error occurred in TextWindow or TextPad class.")
-        #print(ErrorMessage)
-        #print("TRACE")
-        #print(TraceMessage)
-        #if AdditionalInfo:
-        #    print("Additional info:", AdditionalInfo)
-
-        self.ScrollPrint(f"ERROR: {ErrorMessage}")
-        self.ScrollPrint(f"TRACE: {TraceMessage}")
-        if AdditionalInfo:
-            self.ScrollPrint(f"Additional Info: {AdditionalInfo}")
-
-        # Optional delay to give time for users to read the error (if used interactively)
-        time.sleep(5)
 
 
 

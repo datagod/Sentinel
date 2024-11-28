@@ -76,7 +76,8 @@ HeaderWindow  = None
 InfoWindow    = None
 PacketWindow  = None
 DetailsWindow = None
-HorizontalWindowCount = 4
+RawWindow     = None
+HorizontalWindowCount = 5
 HeaderHeight  = 15
 HeaderWidth   = 80
 
@@ -479,6 +480,7 @@ def packet_callback(packet):
     try:
         # Add packet to the queues for processing and saving by other threads
         PacketQueue.put(packet)
+        time.sleep(1)
         
     except Exception as e:
         TraceMessage = traceback.format_exc()
@@ -500,9 +502,10 @@ def process_PacketQueue():
             PacketQueue.task_done()
 
         except Exception as e:
+            # Use the current thread's name to improve diagnostics
+            thread_name  = threading.current_thread().name
             TraceMessage = traceback.format_exc()
-            InfoWindow.ErrorHandler(str(e), TraceMessage, "Error in packet processing thread")
-
+            InfoWindow.ErrorHandler(f"[{thread_name}] {str(e)}", TraceMessage, "Error in packet processing thread")
 
 
 def process_DBQueue():
@@ -529,8 +532,11 @@ def process_DBQueue():
             DBQueue.task_done()
 
         except Exception as e:
+            # Use the current thread's name to improve diagnostics
+            thread_name = threading.current_thread().name
             TraceMessage = traceback.format_exc()
-            InfoWindow.ErrorHandler(str(e), TraceMessage, "Error in DBQueue processing thread")
+            InfoWindow.ErrorHandler(f"[{thread_name}] {str(e)}", TraceMessage, "Error in DBQueue processing thread")
+            
 
 
 
@@ -545,6 +551,7 @@ def process_packet(packet):
     global PacketWindow
     global InfoWindow
     global DetailsWindow
+    global RawWindow
     global oui_dict
     global friendly_devices_dict
     global current_channel_info
@@ -575,9 +582,7 @@ def process_packet(packet):
     PacketKey     = None
 
 
-
-
-    
+  
 
     def resolve_mac(mac, resolver_function, packet):
         if 'UNKNOWN' in mac.upper():
@@ -605,38 +610,80 @@ def process_packet(packet):
       #We will focus on WIFI packets for this project
       mac_details   = extract_oui_and_vendor_information(packet)
 
+      RawWindow.ScrollPrint(f"==========================================")
+      RawWindow.ScrollPrint(f"mac_details: {mac_details}")
       
       # Iterate through each key-value pair in the mac_info dictionary
       #InfoWindow.ScrollPrint("-----MAC DETAILS-------------------------------")
+      
+      
+      
+      
+      
+      # Initialize variables to track MAC addresses and vendor details
+      source_mac    = None
+      source_vendor = None
+      dest_mac      = None
+      dest_vendor   = None
+
+
+
+
+      # Iterate through each key-value pair in the mac_details dictionary
       for mac_type, details in mac_details.items():
-        #InfoWindow.ScrollPrint(f"MAC_TYPE: {mac_type} {details}:")
-        
-        if 'SOURCE' in mac_type.upper():
-          source_mac = normalize_mac(details.get('MAC', 'UNKNOWN'))
-        if 'DEST' in mac_type.upper():
-          dest_mac = normalize_mac(details.get('MAC', 'UNKNOWN'))
+          # Check if the current type indicates a source MAC
+          InfoWindow.ScrollPrint(f"mac_type: {mac_type}")
 
-        # Extract MAC address, OUI, and Vendor information
-        oui    = details.get('OUI', 'UNKNOWN')
-        vendor = details.get('Vendor', 'UNKNOWN')
+          if 'SOURCE' in mac_type.upper():
+              # Extract the MAC address and normalize it
+              source_mac = normalize_mac(details.get('MAC', 'UNKNOWN'))
+                
+              # Check if the source MAC is valid
+              if source_mac != 'UNKNOWN' and source_mac is not None:
+                  # Log the found source MAC and stop processing
+                  InfoWindow.ScrollPrint(f"Found valid source_mac: {source_mac}")
+                  source_vendor = details.get('Vendor', 'UNKNOWN')
+                  InfoWindow.ScrollPrint(f"Vendor: {source_vendor}")
+                  break  # Exit the loop once the first valid source MAC is found
 
-        if "source" in mac_type:
-          source_vendor = vendor
-        if "dest" in mac_type:
-          dest_vendor = vendor
+          # Optionally handle destination MACs or other details
+          if 'DEST' in mac_type.upper():
+              dest_mac = normalize_mac(details.get('MAC', 'UNKNOWN'))
+              dest_vendor = details.get('Vendor', 'UNKNOWN')
 
-      # Resolving MACs if they are still unknown
-      source_mac = resolve_mac(source_mac, get_source_mac, packet)
-      dest_mac   = resolve_mac(dest_mac, get_destination_mac, packet)
+          # Log MAC type and details for debugging purposes
+          oui = details.get('OUI', 'UNKNOWN')
+          vendor = details.get('Vendor', 'UNKNOWN')
+          RawWindow.ScrollPrint(f"MAC_TYPE: {mac_type}, MAC: {details.get('MAC')}, OUI: {oui}, Vendor: {vendor}")
+
+      # Log final results for verification
+      InfoWindow.ScrollPrint(f"Final Source MAC: {source_mac}, Vendor: {source_vendor}")
+      InfoWindow.ScrollPrint(f"Final Destination MAC: {dest_mac}, Vendor: {dest_vendor}")
+
+          
+
+      if source_mac != 'UNKNOWN' and source_mac != None:
+          source_mac = resolve_mac(source_mac, get_source_mac, packet)
+      
+      if dest_mac != 'UNKNOWN' and source_mac != None:
+        dest_mac   = resolve_mac(dest_mac, get_destination_mac, packet)
+
+      if source_mac == 'UNKNOWN' or source_mac == None:
+        source_mac == 'FF:FF:FF:FF:FF:FF'
+      
+      if dest_mac == 'UNKNOWN' or dest_mac == None:
+        dest_mac == 'FF:FF:FF:FF:FF:FF'
+
+
 
       # Extract OUI if source_mac is known
-      if 'UNKNOWN' not in source_mac.upper():
+      if source_mac != 'UNKNOWN' and source_mac != None:
           source_oui = source_mac[:8]
 
       for mac_type, details in mac_details.items():
-        if 'source'.upper() in mac_type.upper():
+        if 'SOURCE' in mac_type.upper():
           source_vendor = f"{details['Vendor']}"
-        elif 'destination'.upper() in mac_type.upper():
+        elif 'DESTINATION' in mac_type.upper():
           dest_vendor = f"{details['Vendor']}"
 
       ssid    = extract_ssid(packet)
@@ -661,27 +708,25 @@ def process_packet(packet):
       if DeviceType == 'UNKNOWN' and 'MOBILE' in PacketType.upper():
           DeviceType = 'Mobile'
 
-      # Create a unique key for the packet based on important fields
-      packet_key = (source_mac, ssid, vendor, DeviceType)
-     
-    
+           
+
     except Exception as ErrorMessage:
       TraceMessage   = traceback.format_exc()
       AdditionalInfo = f"Processing Packet: {format_packet(packet)}"
-      InfoWindow.ScrollPrint(PrintLine='ERROR - ')
+      print(TraceMessage)
       InfoWindow.ScrollPrint(PrintLine=ErrorMessage)
       InfoWindow.ErrorHandler(ErrorMessage,TraceMessage,AdditionalInfo)
       InfoWindow.ScrollPrint(f"Error parsing packet: {ErrorMessage}")
 
-    
-
+    # Create a unique key for the packet based on important fields
+    packet_key = (source_mac, ssid, vendor, DeviceType)
+     
 
     # Check if the packet information is already in the cache
     if packet_key not in displayed_packets_cache:
       #add to cache
       displayed_packets_cache[packet_key] = True
       key_count = key_count + 1
-      #DetailsWindow.ScrollPrint(f"{key_count} - {packet_key}")
 
 
       #Check for friendly device
@@ -796,9 +841,7 @@ def process_packet(packet):
 
     
 
-
-
-    #time.sleep(0.25)
+    
 
 
 
@@ -914,7 +957,7 @@ def sniff_packets(interface):
         
 
     try:
-        InfoWindow.ScrollPrint(PrintLine='Sniffing Packets')
+        #InfoWindow.ScrollPrint(PrintLine='Sniffing Packets')
         # Sniff packets continuously and send them to packet_callback for processing
         sniff(iface=interface, prn=packet_callback, store=0)
     except KeyboardInterrupt:
@@ -1419,12 +1462,48 @@ def channel_hopper(interface, hop_interval):
 
 
 
+def log_active_threads():
+    """
+    Logs detailed information about all active threads.
+    """
+    all_threads = threading.enumerate()
+    InfoWindow.ScrollPrint("=== Active Thread Report ===", Color=5)
+    InfoWindow.ScrollPrint(f"Total Active Threads: {len(all_threads)}", Color=5)
+
+    for thread in all_threads:
+        # Gathering detailed information for each thread
+        thread_name = thread.name
+        thread_ident = thread.ident
+        is_alive = thread.is_alive()
+        is_daemon = thread.daemon
+        stack_size = threading.stack_size()
+
+        # Preparing the log message
+        
+        InfoWindow.ScrollPrint(f"Thread Name    : {thread_name}",Color=3)
+        InfoWindow.ScrollPrint(f"Thread ID      : {thread_ident}",Color=3)
+        InfoWindow.ScrollPrint(f"Is Alive       : {'Yes' if is_alive else 'No'}",Color=3)
+        InfoWindow.ScrollPrint(f"Is Daemon      : {'Yes' if is_daemon else 'No'}",Color=3)
+        InfoWindow.ScrollPrint(f"Stack Size     : {stack_size} bytes",Color=3)
+        InfoWindow.ScrollPrint(f"--------------------------------------",Color=3)
+       
+
+
+def periodic_thread_logging(interval=60):
+    while True:
+        log_active_threads()
+        time.sleep(interval)
+
+
+
+
 # Integrate channel hopping in the main function
 def main(stdscr):
     global HeaderWindow
     global PacketWindow
     global InfoWindow
     global DetailsWindow
+    global RawWindow
     global oui_dict
     global friendly_devices_dict
     global hop_interval
@@ -1463,6 +1542,7 @@ def main(stdscr):
     PacketWindow  = textwindows.TextWindow  (name='PacketWindow', title='Packets',   rows=max_y - 1,     columns=window_width, y1=(HeaderHeight + 1), x1=0,                    ShowBorder='Y', BorderColor=2, TitleColor=2)
     DetailsWindow = textwindows.TextWindow  (name='DetailsWindow',title='Details',   rows=max_y - 1,     columns=window_width, y1=(HeaderHeight + 1), x1=window_width + 1,     ShowBorder='Y', BorderColor=2, TitleColor=2)
     InfoWindow    = textwindows.TextWindow  (name='InfoWindow',   title='Extra Info',rows=max_y - 1,     columns=window_width, y1=(HeaderHeight + 1), x1=window_width * 2 + 1, ShowBorder='Y', BorderColor=2, TitleColor=2)
+    RawWindow     = textwindows.TextWindow  (name='RawWindow',    title='Raw Data',  rows=max_y - 1,     columns=window_width, y1=(HeaderHeight + 1), x1=window_width * 3 + 1, ShowBorder='Y', BorderColor=2, TitleColor=2)
 
 
 
@@ -1478,6 +1558,10 @@ def main(stdscr):
     
     DetailsWindow.DisplayTitle('Details')
     DetailsWindow.refresh()
+
+    RawWindow.DisplayTitle('Raw Data')
+    RawWindow.refresh()
+
 
     
     InfoWindow.ScrollPrint(f"Height x Width {ScreenHeight}x{ScreenWidth}")    
@@ -1520,6 +1604,11 @@ def main(stdscr):
     sniff_thread = threading.Thread(target=sniff_packets, args=(interface,), name="SniffingThread")
     sniff_thread.daemon = True  # Allows the program to exit even if the thread is running
     sniff_thread.start()
+
+    # Create and start the periodic logging thread
+    #logging_thread = threading.Thread(target=periodic_thread_logging, name="ThreadLoggerThread", daemon=True)
+    #logging_thread.start()
+
 
     try:
         # Keep the curses interface running
