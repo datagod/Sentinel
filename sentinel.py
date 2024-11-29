@@ -920,7 +920,7 @@ def process_packet(packet):
        10: f"Longitude:           {longitude}               ",
       }
   
-      #HeaderWindow.set_fixed_lines(HeaderLines,Color=2)
+      HeaderWindow.set_fixed_lines(HeaderLines,Color=2)
 
 
     

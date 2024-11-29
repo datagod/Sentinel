@@ -310,7 +310,71 @@ class TextWindow(BaseTextInterface):
 
 
 
+
 class HeaderWindow(TextWindow):
+    """
+    HeaderWindow is a specialized extension of the TextWindow class that provides functionality 
+    for managing a header display area with fixed, updateable lines of text. It allows specific 
+    rows in the header to be defined with content that can be dynamically updated or refreshed as needed.
+
+    Attributes:
+        fixed_lines (dict): Stores fixed lines as a dictionary where keys are row numbers and values are the text.
+        current_lines (dict): Tracks the current content of the fixed lines to avoid unnecessary updates.
+
+    Args:
+        name (str):    The name of the window.
+        title (str):   The title displayed on the header.
+        rows (int):    The number of rows in the window.
+        columns (int): The number of columns (width) of the window.
+        y1 (int):      The starting y-coordinate of the window.
+        x1 (int):      The starting x-coordinate of the window.
+        ShowBorder (bool): Whether to show a border around the window.
+        BorderColor (str): The color used for the border.
+        TitleColor (str):  The color used for the title and fixed lines.
+        fixed_lines (list or dict): A list of tuples [(row, text)] or a dictionary {row: text} 
+                                    representing the fixed lines to initialize in the header.
+
+    Methods:
+        _initialize_fixed_lines():
+            Sets the initial content for all fixed lines at the header.
+        
+        update_fixed_line(row, text, Color=None):
+            Updates a specific fixed line only if the new content is different from the current content.
+        
+        set_fixed_lines(updates, Color=None):
+            Updates multiple fixed lines in one call, only changing lines whose content differs from the current content.
+        
+        refresh_header():
+            Re-draws all fixed lines if their content has changed.
+
+    Example:
+        header = HeaderWindow(
+            name="MainHeader",
+            title="My Application",
+            rows=5, columns=50, y1=0, x1=0,
+            ShowBorder=True, BorderColor="blue", TitleColor="green",
+            fixed_lines=[(0, "Welcome to My Application"), (2, "User: John Doe")]
+        )
+        
+        # Initialize header with fixed lines
+        header.refresh_header()
+
+        # Update a specific line - only changes if the new content is different
+        header.update_fixed_line(2, "User: Jane Smith", Color="yellow")
+
+        # Update multiple lines at once
+        header.set_fixed_lines({0: "Welcome to the Updated Application", 2: "User: Alice"}, Color="red")
+
+        # Refresh all lines if necessary
+        header.refresh_header()
+
+    Raises:
+        ValueError: If the fixed_lines argument is neither a list of tuples nor a dictionary.
+        ValueError: If an attempt is made to access a row outside the bounds of the HeaderWindow.
+        ValueError: If an attempt is made to update a row that is not part of the fixed header lines.
+    """
+
+
     def __init__(self, name, title, rows, columns, y1, x1, ShowBorder, BorderColor, TitleColor, fixed_lines):
         """
         Initialize the HeaderWindow.
@@ -329,6 +393,9 @@ class HeaderWindow(TextWindow):
             self.fixed_lines = fixed_lines
         else:
             raise ValueError("fixed_lines must be a list of (row, text) tuples or a dictionary {row: text}.")
+
+        # Initialize current_lines to track the current state of each line
+        self.current_lines = {}
         
         self._initialize_fixed_lines()
 
@@ -336,39 +403,45 @@ class HeaderWindow(TextWindow):
         """Sets the initial content for all fixed lines."""
         for row, text in self.fixed_lines.items():
             if 0 <= row < self.DisplayRows:  # Ensure rows are within bounds
+                self.current_lines[row] = text  # Track the initial state
                 self.UpdateLine(row, 1, text, Color=self.TitleColor, Bold=True)
             else:
                 raise ValueError(f"Row {row} is out of bounds for the HeaderWindow.")
 
-    def update_fixed_line(self, row, text, Color):
+    def update_fixed_line(self, row, text, Color=None):
         """
-        Update a specific fixed line.
+        Update a specific fixed line only if it has changed.
 
         Args:
             row (int): The row number to update.
             text (str): The new text for the fixed line.
+            Color (str): Optional; color to use for the line. Defaults to TitleColor if None.
         """
-        if row in self.fixed_lines:
-            self.fixed_lines[row] = text
-            self.UpdateLine(row, 1, text, Color=Color, Bold=True)
-        else:
+        if row not in self.fixed_lines:
             raise ValueError(f"Row {row} is not defined as a fixed header line.")
 
-    def set_fixed_lines(self, updates, Color):
+        # Only update if the text is different
+        if self.current_lines.get(row) != text:
+            self.current_lines[row] = text  # Update the current state
+            self.UpdateLine(row, 1, text, Color=Color if Color else self.TitleColor, Bold=True)
+
+    def set_fixed_lines(self, updates, Color=None):
         """
-        Update multiple fixed lines at once.
+        Update multiple fixed lines at once, only if the content has changed.
 
         Args:
             updates (dict): A dictionary of updates {row: new_text}.
         """
         for row, text in updates.items():
-            self.update_fixed_line(row, text,Color)
+            self.update_fixed_line(row, text, Color)
 
     def refresh_header(self):
-        """Re-draw all fixed lines."""
-        self._initialize_fixed_lines()
-        self.refresh()
+        """Re-draw all fixed lines if they have changed."""
+        for row, text in self.fixed_lines.items():
+            if self.current_lines.get(row) != text:
+                self.update_fixed_line(row, text)
 
+        self.refresh()
 
 
 class TextPad(object):
