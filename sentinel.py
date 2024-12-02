@@ -1424,67 +1424,82 @@ def print_oui_stats(oui_dict,InfoWindow):
 #  MAIN PROCESSING                                        #
 ###########################################################
 
-def channel_hopper(interface, hop_interval):
+def channel_hopper(interface, hop_interval, max_retries=3):
     global current_channel_info
 
-    channel_result = 0
-
     # Define available channels for 2.4 GHz and 5 GHz
-    channels_24ghz = list(range(1, 14))  # Channels 1 to 13 for 2.4 GHz
+    #channels_24ghz = list(range(1, 14))  # Channels 1 to 13 for 2.4 GHz
+    channels_24ghz = [
+        1,2,3,4,5,6,7,8,9,10,11
+    ]
     
-    #channels_5ghz = [36, 40, 44, 48, 149, 153, 157, 161, 165]  # Common 5 GHz channels
-    
-    #Master list 5GHz channels
+    # Master list of 5GHz channels
     channels_5ghz = [
-      36, 38, 40, 42, 44, 46, 48, 
-      52, 54, 56, 58, 60, 62, 64, 
-      100, 102, 104, 106, 108, 110, 112, 114, 116, 118, 120, 122, 124, 126, 128, 
-      132, 134, 136, 138, 140, 142, 144,
-      149, 151, 153, 155, 157, 159, 161, 163, 165, 167, 169, 171, 173]
-
+        36, 40, 44, 48, 
+        52, 56, 60, 64, 
+        100, 104, 108, 112, 116,  
+        132, 136, 140, 144,
+        149, 153, 157, 161, 165
+    ]
 
     # Combine all channels into one list
     all_channels = channels_24ghz + channels_5ghz
+    disabled_channels = set()  # Keep track of disabled channels
     channel_index = 0
 
     try:
         while True:
-            # Set the interface to the current channel
+            # Get the current channel to attempt setting
             current_channel = all_channels[channel_index]
             
-            #keep setting channel until we find one that is not disabled
-            while channel_result != 0:
-              InfoWindow.ScrollPrint("Channel Skipped",Color=3)
-              channel_result = set_channel(interface, current_channel)
+            # Skip channel if it has been marked as disabled
+            if current_channel in disabled_channels:
+                #InfoWindow.ScrollPrint(f"Skipping previously disabled channel {current_channel}", Color=3)
+                channel_index = (channel_index + 1) % len(all_channels)
+                continue
 
+            # Attempt to set the channel, retrying up to max_retries
+            retries = 0
+            channel_result = -1
+            while retries < max_retries:
+                channel_result = set_channel(interface, current_channel)
+                if channel_result == 0:
+                    # Successfully set the channel, break the retry loop
+                    break
+                else:
+                    InfoWindow.ScrollPrint(f"Failed to set channel {current_channel}, retry {retries + 1}/{max_retries}", Color=3)
+                    retries += 1
 
+            # If max retries are reached, mark the channel as disabled
+            if retries == max_retries:
+                InfoWindow.ScrollPrint(f"Max retries reached for channel {current_channel}, marking it as disabled.", Color=1)
+                disabled_channels.add(current_channel)
 
-            # Update the global channel information
-            if current_channel in channels_24ghz:
-                current_channel_info = {
-                    "channel": current_channel,
-                    "band": "2.4 GHz",
-                    "frequency": 2407 + current_channel * 5
-                }
-            elif current_channel in channels_5ghz:
-                current_channel_info = {
-                    "channel": current_channel,
-                    "band": "5 GHz",
-                    "frequency": 5000 + (current_channel * 5)
-                }
-
-            #InfoWindow.ScrollPrint(f"{current_channel_info['band']} band - Channel {current_channel} - Freq. {current_channel_info['frequency']} MHz",Color=5)
-
+            # If the channel was successfully set, update current channel info
+            if channel_result == 0:
+                if current_channel in channels_24ghz:
+                    current_channel_info = {
+                        "channel": current_channel,
+                        "band": "2.4 GHz",
+                        "frequency": 2407 + current_channel * 5
+                    }
+                elif current_channel in channels_5ghz:
+                    current_channel_info = {
+                        "channel": current_channel,
+                        "band": "5 GHz",
+                        "frequency": 5000 + (current_channel * 5)
+                    }
+                # Wait for the specified hop interval before switching channels again
+                #InfoWindow.ScrollPrint(f"Successfully set to {current_channel_info['band']} - Channel {current_channel} - Freq. {current_channel_info['frequency']} MHz", Color=5)
+                time.sleep(hop_interval)
 
             # Move to the next channel (wrap around if at the end)
             channel_index = (channel_index + 1) % len(all_channels)
 
-            # Wait for the specified hop interval before switching channels again
-            time.sleep(hop_interval)
+            
 
     except KeyboardInterrupt:
         InfoWindow.ScrollPrint("Channel hopping stopped by user.")
-
 
 
 
