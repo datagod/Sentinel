@@ -56,12 +56,13 @@ from device_type_dict import device_type_dict
 
 
 #Global Variables
-oui_dict      = None
-vendor_cache  = {}
-write_lock    = threading.Lock()
-gps_lock      = threading.Lock()  # New lock for GPS synchronization
-hop_interval  = 0.25  # Interval in seconds between channel hops
-main_interval = 1     # Interval in seconds for the main loop
+oui_dict       = None
+vendor_cache   = {}
+write_lock     = threading.Lock()
+gps_lock       = threading.Lock()  # New lock for GPS synchronization
+gps_stop_event = threading.Event()
+hop_interval   = 0.25  # Interval in seconds between channel hops
+main_interval  = 1     # Interval in seconds for the main loop
 current_channel_info    = {"channel": None, "band": None, "frequency": None}
 displayed_packets_cache = {}
 key_count               = 0
@@ -86,7 +87,7 @@ InfoWindow    = None
 PacketWindow  = None
 DetailsWindow = None
 RawWindow     = None
-HorizontalWindowCount = 5
+HorizontalWindowCount = 4
 HeaderHeight  = 15
 HeaderWidth   = 80
 
@@ -184,14 +185,14 @@ def get_current_gps_coordinates():
     global latitude
     global longitude
     global gps_lock
-    global stop_event
+    global gps_stop_event
 
     # Set up the GPS session
     gpsd = gps.gps(mode=gps.WATCH_ENABLE)  # Enable the streaming mode for GPS data
 
     try:
         # Wait until we receive GPS data with valid lat and lon
-        while not stop_event.is_set():
+        while not gps_stop_event.is_set():
             gpsd.next()  # Get the next set of GPS data
             if gpsd.fix.mode >= 2:  # Ensure we have a valid GPS fix (2D or 3D)
                 with gps_lock:  # Acquire lock before updating coordinates
@@ -1538,6 +1539,7 @@ def main(stdscr):
     global Longitude
     global current_latitude
     global current_longitude
+    global gps_stop_event
     
 
     looping = True
@@ -1569,10 +1571,10 @@ def main(stdscr):
     ]
    
     HeaderWindow  = textwindows.HeaderWindow(name='HeaderWindow', title='Header',    rows= HeaderHeight, columns=window_width,    y1=0, x1=0,                                 ShowBorder='Y', BorderColor=2, TitleColor=3,fixed_lines=fixed_lines)
-    PacketWindow  = textwindows.TextWindow  (name='PacketWindow', title='Packets',   rows=max_y - 1,     columns=window_width,    y1=(HeaderHeight), x1=0,                    ShowBorder='Y', BorderColor=2, TitleColor=2)
-    DetailsWindow = textwindows.TextWindow  (name='DetailsWindow',title='Details',   rows=max_y - 1,     columns=window_width *2, y1=(HeaderHeight), x1=window_width + 1,     ShowBorder='Y', BorderColor=2, TitleColor=2)
+    DetailsWindow = textwindows.TextWindow  (name='DetailsWindow',title='Details',   rows=max_y - 1,     columns=window_width *2, y1=(HeaderHeight), x1=0,                    ShowBorder='Y', BorderColor=2, TitleColor=2)
+    PacketWindow  = textwindows.TextWindow  (name='PacketWindow', title='Packets',   rows=max_y - 1,     columns=window_width,    y1=(HeaderHeight), x1=window_width * 2,     ShowBorder='Y', BorderColor=2, TitleColor=2)
     InfoWindow    = textwindows.TextWindow  (name='InfoWindow',   title='Extra Info',rows=max_y - 1,     columns=window_width,    y1=(HeaderHeight), x1=window_width * 3 + 1, ShowBorder='Y', BorderColor=2, TitleColor=2)
-    RawWindow     = textwindows.TextWindow  (name='RawWindow',    title='Raw Data',  rows=max_y - 1,     columns=window_width,    y1=(HeaderHeight), x1=window_width * 4 + 1, ShowBorder='Y', BorderColor=2, TitleColor=2)
+    #RawWindow     = textwindows.TextWindow  (name='RawWindow',    title='Raw Data',  rows=max_y - 1,     columns=window_width,    y1=(HeaderHeight), x1=window_width * 4 + 1, ShowBorder='Y', BorderColor=2, TitleColor=2)
 
 
 
@@ -1589,8 +1591,8 @@ def main(stdscr):
     DetailsWindow.DisplayTitle('Details')
     DetailsWindow.refresh()
 
-    RawWindow.DisplayTitle('Raw Data')
-    RawWindow.refresh()
+    #RawWindow.DisplayTitle('Raw Data')
+    #RawWindow.refresh()
 
 
     
@@ -1655,7 +1657,7 @@ def main(stdscr):
             with gps_lock:
                 current_latitude = latitude
                 current_longitude = longitude
-
+                
             #LatLong = get_current_gps_coordinates()
             # Update the curses windows if needed
             #PacketWindow.window.touchwin()
@@ -1667,6 +1669,11 @@ def main(stdscr):
 
     except KeyboardInterrupt:
         InfoWindow.ScrollPrint("Stopping...")
+        
+
+        gps_stop_event.set()
+        gps_thread.join()  
+
 
 # Call main
 curses.wrapper(main)
