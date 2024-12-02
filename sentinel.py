@@ -59,7 +59,9 @@ from device_type_dict import device_type_dict
 oui_dict      = None
 vendor_cache  = {}
 write_lock    = threading.Lock()
-hop_interval  = 1  # Interval in seconds between channel hops
+gps_lock      = threading.Lock()  # New lock for GPS synchronization
+hop_interval  = 0.25  # Interval in seconds between channel hops
+main_interval = 1     # Interval in seconds for the main loop
 current_channel_info    = {"channel": None, "band": None, "frequency": None}
 displayed_packets_cache = {}
 key_count               = 0
@@ -73,7 +75,10 @@ DBConnection            = None
 PacketsSavedToDBCount   = 0
 latitude                = None
 longitude               = None
-HeaderUpdateSpeed       = 5
+current_latitude        = None
+current_longitude       = None
+
+HeaderUpdateSpeed       = 10
 
 #Windows variables
 HeaderWindow  = None
@@ -178,25 +183,26 @@ def extract_signal_strength(packet):
 def get_current_gps_coordinates():
     global latitude
     global longitude
+    global gps_lock
+    global stop_event
 
     # Set up the GPS session
     gpsd = gps.gps(mode=gps.WATCH_ENABLE)  # Enable the streaming mode for GPS data
 
     try:
         # Wait until we receive GPS data with valid lat and lon
-        while True:
+        while not stop_event.is_set():
             gpsd.next()  # Get the next set of GPS data
             if gpsd.fix.mode >= 2:  # Ensure we have a valid GPS fix (2D or 3D)
-                latitude = str(gpsd.fix.latitude)
-                longitude = str(gpsd.fix.longitude)
-                time.sleep(1)
-                #if latitude != 0.0 and longitude != 0.0:
-                #    return latitude, longitude
+                with gps_lock:  # Acquire lock before updating coordinates
+                    latitude = str(gpsd.fix.latitude)
+                    longitude = str(gpsd.fix.longitude)
+                
+                # Add a delay between GPS reads to avoid busy waiting
+                time.sleep(1)  # Adjust as needed for acceptable update frequency
     except Exception as e:
-        InfoWindow.ScrollPrint(f"Error: {e}")
+        InfoWindow.ScrollPrint(f"Error in GPS Thread: {e}")
         
-
-
 
 
 
@@ -449,8 +455,8 @@ def save_DB_Packet(DBPacket):
         INSERT INTO Packet (
             FriendlyName, FriendlyType, PacketType, DeviceType, 
             SourceMAC, SourceVendor, DestMAC, DestVendor, 
-            SSID, Band, Channel
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            SSID, Band, Channel, Latitude, Longitude
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         '''
 
         # Execute the insert statement with provided packet information
@@ -465,7 +471,9 @@ def save_DB_Packet(DBPacket):
             DBPacket.get('DestVendor'),
             DBPacket.get('SSID'),
             DBPacket.get('Band'),
-            DBPacket.get('Channel')
+            DBPacket.get('Channel'),
+            DBPacket.get('Longitude'),
+            DBPacket.get('Latitude')
         ))
 
         # Commit the changes 
@@ -574,9 +582,8 @@ def process_packet(packet):
     global FriendlyDeviceCount
     global DBQueue
     global PacketsSavedToDBCount
-    global Latitude
-    global Longitude
-
+    global gps_lock
+    
     count         = 0
     PacketCount   = PacketCount + 1
     source_vendor = ''
@@ -585,6 +592,7 @@ def process_packet(packet):
     band          = 0
     timestamp     = datetime.now()
     KeyTime       = datetime.now().replace(second=0, microsecond=0)
+    
 
     DeviceType    = ''
     source_mac    = 'UNKNOWN'
@@ -803,13 +811,13 @@ def process_packet(packet):
             'DestVendor'  : dest_vendor,
             'SSID'        : ssid,
             'Band'        : band,
-            'Channel'     : channel}
+            'Channel'     : channel,
+            'Latitude'    : current_latitude,
+            'Longitude'   : current_longitude
+            }
         
           DBQueue.put(DBPacket)
           #insert_packet(DBPacket, db_path=PacketDB)
-
-
-
 
 
 
@@ -831,8 +839,8 @@ def process_packet(packet):
         6: f"Packets Saved to DB: {PacketsSavedToDBCount}   ",
         7: f"Friendly Devices:    {FriendlyDeviceCount}     ",
         8: f"Total Devices:       {key_count}               ",
-        9: f"Latitude:            {latitude}                ",
-       10: f"Longitude:           {longitude}               ",
+        9: f"Latitude:            {current_latitude}        ",
+       10: f"Longitude:           {current_longitude}       ",
       }
   
       HeaderWindow.set_fixed_lines(HeaderLines,Color=2)
@@ -1528,6 +1536,8 @@ def main(stdscr):
     global DBConnection
     global Latitude
     global Longitude
+    global current_latitude
+    global current_longitude
     
 
     looping = True
@@ -1639,7 +1649,13 @@ def main(stdscr):
     try:
         # Keep the curses interface running
         while True:
-            time.sleep(5)
+            time.sleep(main_interval)
+
+            # Safely read GPS coordinates
+            with gps_lock:
+                current_latitude = latitude
+                current_longitude = longitude
+
             #LatLong = get_current_gps_coordinates()
             # Update the curses windows if needed
             #PacketWindow.window.touchwin()

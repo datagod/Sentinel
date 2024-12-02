@@ -30,7 +30,9 @@ try:
         DestVendor   TEXT,
         SSID         TEXT,
         Band         TEXT,
-        Channel      TEXT
+        Channel      TEXT,
+        Latitude     REAL,
+        Longitude    REAL
 
     );
     '''
