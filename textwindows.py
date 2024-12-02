@@ -219,14 +219,13 @@ class TextWindow(BaseTextInterface):
           self.ErrorHandler(ErrorMessage, TraceMessage, AdditionalInfo)                           
 
 
-
-
-    def DisplayTitle(self,Title=''):
-        #Display the object's title, or a custom one 
+    def DisplayTitle(self, Title=''):
+        # Display the object's title, or a custom one 
         DisplayTitle = self.title 
 
         if DisplayTitle == '':
             DisplayTitle = Title
+       
         
         try:
             DisplayTitle = DisplayTitle[0:self.DisplayColumns - 3]
