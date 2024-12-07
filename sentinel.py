@@ -1,5 +1,10 @@
 '''
-Notes: Do not write to the windows from multiple threads as this will lead to strange artifacts
+Notes: 
+ - Do not write to the windows from multiple threads as this will lead to strange artifacts
+ - look into generating maps with Folium and serving them up via webserver
+ - modify scrollprint to add a string to a window_queue (windowname, string)
+ - a separate thread will read the window_queue and write the string to the correct window
+ - store raw packets for further processing by A.I. to fingerprint devices that have modified their MAC repeatedly
 
 
 Sentinel Passive Surveillance System
@@ -26,8 +31,6 @@ Date            | Author         | Description
 '''
 
 
-
-
 import curses
 import queue
 import textwindows
@@ -41,6 +44,9 @@ import re
 import json
 from collections import Counter
 import gps
+import inspect
+from functools import wraps
+from cachetools import TTLCache
 
 import netaddr
 import threading
@@ -61,16 +67,19 @@ vendor_cache   = {}
 write_lock     = threading.Lock()
 gps_lock       = threading.Lock()  # New lock for GPS synchronization
 gps_stop_event = threading.Event()
-hop_interval   = 0.25  # Interval in seconds between channel hops
-main_interval  = 1     # Interval in seconds for the main loop
+profile_lock   = threading.Lock()
+profiling_data = {}                # Dictionary to store function run times
+
+
 current_channel_info    = {"channel": None, "band": None, "frequency": None}
-displayed_packets_cache = {}
+displayed_packets_cache = TTLCache(maxsize=10000, ttl=900)   #entry expires after 15 minutes
+friendly_device_cache   = TTLCache(maxsize=10000, ttl=3600)  #entry expires after 1 hour
 key_count               = 0
 friendly_devices_dict   = None
 PacketCount             = 0
+friendly_key_count      = 0
 PacketQueue             = queue.Queue()
 DBQueue                 = queue.Queue()
-FriendlyDeviceCount     = 0
 PacketDB                = "packet.db"
 DBConnection            = None
 PacketsSavedToDBCount   = 0
@@ -79,7 +88,17 @@ longitude               = None
 current_latitude        = None
 current_longitude       = None
 
-HeaderUpdateSpeed       = 10
+
+#Timers
+hop_interval      = 1  #Interval in seconds between channel hops
+hop_modifier      = 5    #modifies the hop interval so we don't wait as long on 5Ghz channels 
+main_interval     = 30   #Interval in seconds for the main loop
+gps_interval      = 1    #Interval in seconds for the GPS check
+HeaderUpdateSpeed = 5
+
+
+
+
 
 #Windows variables
 HeaderWindow  = None
@@ -113,6 +132,100 @@ os.system("figlet 'SENTINEL PASSIVE SURVEILLANCE SYSTEM'")
 
 
 
+def profile_decorator(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        profile_function(func.__name__, "start")
+        result = func(*args, **kwargs)
+        profile_function(func.__name__, "stop")
+        return result
+    return wrapper
+
+
+
+def profile_function(function_name, action):
+    global profiling_data
+    global profile_lock
+    
+    with profile_lock:  # Acquire lock before updating coordinates
+
+        if action.lower() == "start":
+            # Record the start time for the given function
+            
+            if function_name not in profiling_data:
+                profiling_data[function_name] = {
+                    "start_time": None,
+                    "total_time": 0,
+                    "call_count": 0,
+                    "min_time": float('inf'),
+                    "max_time": 0,
+                }
+            profiling_data[function_name]["start_time"] = time.time()
+
+        elif action.lower() == "stop":
+            
+            # Ensure function has started
+            if function_name in profiling_data and profiling_data[function_name]["start_time"] is not None:
+                # Calculate elapsed time
+                elapsed_time = time.time() - profiling_data[function_name]["start_time"]
+                
+                # Update stats
+                profiling_data[function_name]["total_time"] += elapsed_time
+                profiling_data[function_name]["call_count"] += 1
+                profiling_data[function_name]["min_time"] = min(profiling_data[function_name]["min_time"], elapsed_time)
+                profiling_data[function_name]["max_time"] = max(profiling_data[function_name]["max_time"], elapsed_time)
+                
+                # Reset the start time
+                profiling_data[function_name]["start_time"] = None
+            else:
+                print(f"Warning: 'stop' called without a matching 'start' for function '{function_name}'")
+            
+
+
+@profile_decorator
+def get_profile_summary(top_x=5):
+    # Collect profiling data with average times
+    functions_with_avg_times = []
+
+    for function_name, data in profiling_data.items():
+        if data["call_count"] > 1:
+            avg_time = data["total_time"] / data["call_count"]
+            functions_with_avg_times.append({
+                "function_name": function_name,
+                "call_count": data["call_count"],
+                "avg_time": avg_time,
+                "min_time": data["min_time"],
+                "max_time": data["max_time"]
+            })
+
+    # Sort the functions by average time in descending order to get the slowest
+    functions_with_avg_times.sort(key=lambda x: x["avg_time"], reverse=True)
+
+    # Display the top X slowest functions
+    InfoWindow.ScrollPrint(f"Top {top_x} Slowest Functions by Average Runtime:\n")
+    for i, function_data in enumerate(functions_with_avg_times[:top_x]):
+        InfoWindow.ScrollPrint(f"{i + 1}. Function: {function_data['function_name']}")
+        InfoWindow.ScrollPrint(f"   Calls:    {function_data['call_count']}")
+        InfoWindow.ScrollPrint(f"   Avg Time: {function_data['avg_time']:.2f} seconds")
+        InfoWindow.ScrollPrint(f"   Min Time: {function_data['min_time']:.2f} seconds")
+        InfoWindow.ScrollPrint(f"   Max Time: {function_data['max_time']:.2f} seconds\n")
+    
+    # Optionally, display all the functions in the order of their performance
+    # InfoWindow.ScrollPrint("\nDetailed profiling summary for all functions:\n")
+    # for function_data in functions_with_avg_times:
+    #     InfoWindow.ScrollPrint(f"Function '{function_data['function_name']}':")
+    #     InfoWindow.ScrollPrint(f"  Calls: {function_data['call_count']}")
+    #     InfoWindow.ScrollPrint(f"  Avg Time: {function_data['avg_time']:.4f} seconds")
+    #     InfoWindow.ScrollPrint(f"  Min Time: {function_data['min_time']:.4f} seconds")
+    #     InfoWindow.ScrollPrint(f"  Max Time: {function_data['max_time']:.4f} seconds\n")
+
+
+
+
+
+
+
+@profile_decorator
 def format_into_columns(max_length, *args):
     """
     Formats a set of variables into columns within a given max length.
@@ -151,6 +264,7 @@ def format_into_columns(max_length, *args):
     return formatted_string
 
 
+@profile_decorator
 def replace_none_with_unknown(*args):
     """
     Takes a list of arguments and replaces any None value with "UNKNOWN".
@@ -163,6 +277,7 @@ def replace_none_with_unknown(*args):
 
 
 
+@profile_decorator
 def extract_signal_strength(packet):
     """
     Extracts the signal strength (RSSI) from a Wi-Fi packet.
@@ -170,6 +285,9 @@ def extract_signal_strength(packet):
     :param packet: Scapy packet object to be analyzed.
     :return: Signal strength in dBm if available, otherwise returns 'UNKNOWN'.
     """
+    #HeaderWindow.UpdateLine(1,40,f"Function: {inspect.currentframe().f_code.co_name}        ")
+
+
     # Check if the packet has a Dot11 layer, which is used in Wi-Fi packets.
     if packet.haslayer(Dot11):
         # Try to access the dBm_AntSignal attribute which represents the signal strength.
@@ -180,7 +298,7 @@ def extract_signal_strength(packet):
     return 'UNKNOWN'
 
 
-
+@profile_decorator
 def get_current_gps_coordinates():
     global latitude
     global longitude
@@ -200,7 +318,7 @@ def get_current_gps_coordinates():
                     longitude = str(gpsd.fix.longitude)
                 
                 # Add a delay between GPS reads to avoid busy waiting
-                time.sleep(1)  # Adjust as needed for acceptable update frequency
+                time.sleep(gps_interval)  # Adjust as needed for acceptable update frequency
     except Exception as e:
         InfoWindow.ScrollPrint(f"Error in GPS Thread: {e}")
         
@@ -224,6 +342,7 @@ def get_raw_packet_string(packet):
 
 
 
+@profile_decorator
 def print_raw_packet(packet):
     """
     Prints the raw packet in a pretty formatted way.
@@ -241,6 +360,7 @@ def print_raw_packet(packet):
 
 
 
+@profile_decorator
 def get_source_mac(packet):
     def get_mac_field(field):
         return normalize_mac(field) if isinstance(field, str) else 'UNKNOWN'
@@ -258,6 +378,7 @@ def get_source_mac(packet):
     return 'No Source MAC'
 
 
+@profile_decorator
 def get_destination_mac(packet):
     def get_mac_field(field):
         return field.upper().replace('-', ':')   if isinstance(field, str) else field
@@ -275,7 +396,11 @@ def get_destination_mac(packet):
     return 'No Destination MAC'
 
 
+@profile_decorator
 def get_vendor(mac, oui_dict):
+
+    #HeaderWindow.UpdateLine(1,40,f"Function: {inspect.currentframe().f_code.co_name}        ")
+
     # Extract the OUI prefix (first 8 characters)
     mac_prefix = normalize_mac(mac[:8])  # Normalize delimiter format
     InfoWindow.ScrollPrint(f"Looking up MAC Prefix: {mac_prefix}")
@@ -321,6 +446,7 @@ def get_vendor(mac, oui_dict):
     return vendor
 '''
 
+@profile_decorator
 def extract_ssid(packet):
     #Extracts SSID from a packet if present.
     try:
@@ -332,10 +458,12 @@ def extract_ssid(packet):
 
 
 
+@profile_decorator
 def load_friendly_devices_dict(filename):
     with open(filename, 'r') as json_file:
         return json.load(json_file)
 
+@profile_decorator
 def load_oui_dict_from_json(filename):
     with open(filename, 'r') as json_file:
         return json.load(json_file)
@@ -343,6 +471,7 @@ def load_oui_dict_from_json(filename):
 
 
 # Example Lookup Function
+@profile_decorator
 def lookup_vendor_by_mac(mac, oui_dict):
     ## Extract and normalize the OUI prefix from MAC address
     mac_prefix = normalize_mac(mac[:8])
@@ -351,12 +480,13 @@ def lookup_vendor_by_mac(mac, oui_dict):
 
 
 
+@profile_decorator
 def determine_device_type(oui):
   device_type = device_type_dict.get(oui, "UNKNOWN")
   return device_type 
 
 
-
+@profile_decorator
 def determine_device_type_with_packet(packet):
     """
     Determines the likely type of the device that sent the given packet.
@@ -367,6 +497,7 @@ def determine_device_type_with_packet(packet):
     :param packet: Scapy packet object to analyze.
     :return: String indicating the likely device type.
     """
+    #HeaderWindow.UpdateLine(1,40,f"Function: {inspect.currentframe().f_code.co_name}        ")
 
     # Check for already known vendor information from your lookup
     if packet.haslayer(Dot11) and packet.addr2:
@@ -418,6 +549,7 @@ def determine_device_type_with_packet(packet):
 
 
 # Function to search for a MAC address
+@profile_decorator
 def search_friendly_devices(mac, friendly_devices):
     for device in friendly_devices:
         if device["MAC"] == mac:
@@ -433,7 +565,7 @@ def search_friendly_devices(mac, friendly_devices):
 #-------------------------------
 
 
-
+@profile_decorator
 def save_DB_Packet(DBPacket):
     """
     Insert packet information into the Packet table.
@@ -447,7 +579,6 @@ def save_DB_Packet(DBPacket):
 
     try:
         # Connect to the SQLite database
-        #InfoWindow.ScrollPrint("Connection Open")
         cursor = DBConnection.cursor()
 
 
@@ -498,17 +629,20 @@ def save_DB_Packet(DBPacket):
 #-- Packet Callback 
 #-------------------------------
 
+@profile_decorator
 def packet_callback(packet):
     try:
         # Add packet to the queues for processing and saving by other threads
         PacketQueue.put(packet)
         
+
         
     except Exception as e:
         TraceMessage = traceback.format_exc()
         InfoWindow.ErrorHandler(str(e), TraceMessage, "**Error in packet callback**")
 
 
+@profile_decorator
 def process_PacketQueue():
     global InfoWindow
 
@@ -530,6 +664,7 @@ def process_PacketQueue():
             InfoWindow.ErrorHandler(f"[{thread_name}] {str(e)}", TraceMessage, "Error in packet processing thread")
 
 
+@profile_decorator
 def process_DBQueue():
     global InfoWindow
     global DBQueue
@@ -566,7 +701,7 @@ def process_DBQueue():
 #-- Process Packet and Display Info
 #------------------------------------
 
-
+@profile_decorator
 def process_packet(packet):
     
     global HeaderWindow
@@ -578,12 +713,15 @@ def process_packet(packet):
     global friendly_devices_dict
     global current_channel_info
     global displayed_packets_cache
+    global friendly_device_cache
     global key_count
     global PacketCount
-    global FriendlyDeviceCount
+    global friendly_key_count
     global DBQueue
     global PacketsSavedToDBCount
     global gps_lock
+    
+
     
     count         = 0
     PacketCount   = PacketCount + 1
@@ -600,20 +738,24 @@ def process_packet(packet):
     dest_mac      = 'UNKNOWN'
     source_oui    = ''
     ssid          = ''
-    FriendlyName  = ''
-    FriendlyType  = ''
-    FriendlyBrand = ''
-    PacketKey     = None
+    FriendlyName  = None
+    FriendlyType  = None
+    FriendlyBrand = None
     mac_details   = None
     signal        = None
-
+    friendly_device_key = None
 
   
 
     def resolve_mac(mac, resolver_function, packet):
+        #HeaderWindow.UpdateLine(1,40,f"Function: {inspect.currentframe().f_code.co_name}        ")
         if 'UNKNOWN' in mac.upper():
             return resolver_function(packet)
+        
         return mac
+
+    
+    #HeaderWindow.UpdateLine(1,40,f"Function: {inspect.currentframe().f_code.co_name}")
 
 
     #-------------------------------
@@ -622,7 +764,7 @@ def process_packet(packet):
 
     try:
       
-            #Get all the information about the packet before displaying anything
+      #Get all the information about the packet before displaying anything
       PacketType     = identify_packet_type(packet)
       packet_layers  = identify_packet_layers(packet)
         
@@ -733,30 +875,38 @@ def process_packet(packet):
       InfoWindow.ScrollPrint(f"Error parsing packet: {ErrorMessage}")
 
     # Create a unique key for the packet based on important fields
-    source_mac, ssid, source_vendor, DeviceType = replace_none_with_unknown(source_mac, ssid, source_vendor, DeviceType)
-    packet_key = (source_mac, ssid, source_vendor, DeviceType)
+    source_mac, ssid, source_vendor, DeviceType, signal = replace_none_with_unknown(source_mac, ssid, source_vendor, DeviceType, signal)
+    packet_key = (source_mac, ssid, source_vendor, DeviceType, signal)
      
 
     # Check if the packet information is already in the cache
     if packet_key not in displayed_packets_cache:
       #add to cache
       displayed_packets_cache[packet_key] = True
-      key_count = key_count + 1
+      key_count = len(displayed_packets_cache)
 
 
       #Check for friendly device
       result = search_friendly_devices(source_mac,friendly_devices_dict)
       if result:
-        FriendlyDeviceCount = FriendlyDeviceCount +1
         FriendlyName = result['FriendlyName']
         FriendlyType = result['Type']
         FriendlyBrand = result['Brand']
+
+        # Create a unique key for the friendly packet based on important fields
+        friendly_device_key = (FriendlyName, FriendlyType)
+        #add to cache
+        friendly_device_cache[friendly_device_key] = True
+        friendly_key_count = len(friendly_device_cache)
+
 
         #DetailsWindow.ScrollPrint(f"{key_count} - {FriendlyName} - {FriendlyType} - {FriendlyBrand} - {ssid}")
 
         FormattedString = format_into_columns(DetailsWindow.columns, FriendlyName,  FriendlyType,   FriendlyBrand,   ssid, (f"{band} {channel} {signal}dB"))
         DetailsWindow.ScrollPrint(FormattedString)
-        #DetailsWindow.DisplayTitle(TitleString,LineFill=True)
+
+        FormattedString = format_into_columns(DetailsWindow.columns, 'FriendlyName','FriendlyType', 'FriendlyBrand', 'SSID','Band/Channel/Signal')
+        DetailsWindow.DisplayTitle(FormattedString,x=1)
 
 
       else:
@@ -773,52 +923,51 @@ def process_packet(packet):
             (f"{band} {channel} {signal}dB")
             )
          
-         
           DetailsWindow.ScrollPrint(FormattedString,Color=3)
 
 
-          PacketWindow.ScrollPrint(f'CaptureDate:   {timestamp}')
-          if FriendlyName:
-              PacketWindow.ScrollPrint(f'FriendlyName:  {FriendlyName}')    
-              PacketWindow.ScrollPrint(f'FriendlyType:  {FriendlyType}')    
-          
-          
-          PacketWindow.ScrollPrint(f'PacketType:    {PacketType}')
-          PacketWindow.ScrollPrint(f'DeviceType:    {DeviceType}')
-          PacketWindow.ScrollPrint(f'Source MAC:    {source_mac}')
-          PacketWindow.ScrollPrint(f'Source Vendor: {source_vendor}')
-          PacketWindow.ScrollPrint(f'Dest MAC:      {dest_mac}')
-          PacketWindow.ScrollPrint(f'Dest Vendor:   {dest_vendor}')
-          PacketWindow.ScrollPrint(f'SSID:          {ssid}')
-          PacketWindow.ScrollPrint(f'Band:          {band}')
-          PacketWindow.ScrollPrint(f'channel:       {channel}')
-          PacketWindow.ScrollPrint(f'signal:        {signal} dB')
-          PacketWindow.ScrollPrint('---------------------------------------------------')
+      PacketWindow.ScrollPrint(f'CaptureDate:   {timestamp}')
+      if FriendlyName is not None:
+        PacketWindow.ScrollPrint(f'FriendlyName:  {FriendlyName}')    
+        PacketWindow.ScrollPrint(f'FriendlyType:  {FriendlyType}')    
+    
+        
+      PacketWindow.ScrollPrint(f'PacketType:    {PacketType}')
+      PacketWindow.ScrollPrint(f'DeviceType:    {DeviceType}')
+      PacketWindow.ScrollPrint(f'Source MAC:    {source_mac}')
+      PacketWindow.ScrollPrint(f'Source Vendor: {source_vendor}')
+      PacketWindow.ScrollPrint(f'Dest MAC:      {dest_mac}')
+      PacketWindow.ScrollPrint(f'Dest Vendor:   {dest_vendor}')
+      PacketWindow.ScrollPrint(f'SSID:          {ssid}')
+      PacketWindow.ScrollPrint(f'Band:          {band}')
+      PacketWindow.ScrollPrint(f'channel:       {channel}')
+      PacketWindow.ScrollPrint(f'signal:        {signal} dB')
+      PacketWindow.ScrollPrint('---------------------------------------------------')
 
     
-          #--------------------------------------
-          #-- Save processed packet to DB Queue
-          #--------------------------------------
-          # For now we save Intruder details to the database
-          DBPacket = {
-            'CaptureDate' : timestamp,
-            'FriendlyName': FriendlyName,
-            'FriendlyType': FriendlyType,
-            'PacketType'  : PacketType,
-            'DeviceType'  : DeviceType,
-            'SourceMAC'   : source_mac,
-            'SourceVendor': source_vendor,
-            'DestMAC'     : dest_mac,
-            'DestVendor'  : dest_vendor,
-            'SSID'        : ssid,
-            'Band'        : band,
-            'Channel'     : channel,
-            'Latitude'    : current_latitude,
-            'Longitude'   : current_longitude
-            }
-        
-          DBQueue.put(DBPacket)
-          #insert_packet(DBPacket, db_path=PacketDB)
+      #--------------------------------------
+      #-- Save processed packet to DB Queue
+      #--------------------------------------
+      # For now we save Intruder details to the database
+      DBPacket = {
+        'CaptureDate' : timestamp,
+        'FriendlyName': FriendlyName,
+        'FriendlyType': FriendlyType,
+        'PacketType'  : PacketType,
+        'DeviceType'  : DeviceType,
+        'SourceMAC'   : source_mac,
+        'SourceVendor': source_vendor,
+        'DestMAC'     : dest_mac,
+        'DestVendor'  : dest_vendor,
+        'SSID'        : ssid,
+        'Band'        : band,
+        'Channel'     : channel,
+        'Latitude'    : current_latitude,
+        'Longitude'   : current_longitude
+        }
+    
+      DBQueue.put(DBPacket)
+      #insert_packet(DBPacket, db_path=PacketDB)
 
 
 
@@ -838,7 +987,7 @@ def process_packet(packet):
         4: f"Packet Queue Size:   {packetqueue_size}        ",
         5: f"DB Queue Size:       {dbqueue_size}            ",
         6: f"Packets Saved to DB: {PacketsSavedToDBCount}   ",
-        7: f"Friendly Devices:    {FriendlyDeviceCount}     ",
+        7: f"Friendly Devices:    {friendly_key_count}      ",
         8: f"Total Devices:       {key_count}               ",
         9: f"Latitude:            {current_latitude}        ",
        10: f"Longitude:           {current_longitude}       ",
@@ -846,6 +995,12 @@ def process_packet(packet):
   
       HeaderWindow.set_fixed_lines(HeaderLines,Color=2)
 
+
+      
+      
+      # Print out Function timings
+      #if random.randint(1,50) == 1:
+      #  get_profile_summary(3)
 
     
 
@@ -858,6 +1013,7 @@ def process_packet(packet):
 
 
 # Function to set the channel on a given Wi-Fi interface
+@profile_decorator
 def set_channel(interface, channel):
     global InfoWindow
     """
@@ -906,6 +1062,7 @@ def set_channel(interface, channel):
 
 
 
+@profile_decorator
 def extract_packet_info(packet):
     """
     Extracts as much information as possible from a given packet.
@@ -954,6 +1111,7 @@ def extract_packet_info(packet):
 
 
 
+@profile_decorator
 def sniff_packets(interface):
     """
     Sniffs packets on the given interface.
@@ -975,6 +1133,7 @@ def sniff_packets(interface):
         InfoWindow.ErrorHandler(ErrorMessage,TraceMessage,'Erroor in sniff_packets function')
 
 
+@profile_decorator
 def format_packet(packet):
     """
     Formats a packet for output as a string.
@@ -1000,6 +1159,7 @@ def normalize_mac(mac: str) -> str:
     return mac.upper().replace('-', ':')
 
 
+@profile_decorator
 def analyze_packet(packet):
     """
     Analyze any packet to determine its type and extract relevant information.
@@ -1100,6 +1260,7 @@ def analyze_packet(packet):
 
 
 
+@profile_decorator
 def get_monitor_mode_interface():
     global InfoWindow
     try:
@@ -1134,7 +1295,7 @@ def get_monitor_mode_interface():
 
 
 
-
+@profile_decorator
 def extract_oui_and_vendor_information(packet):
     """
     Extracts OUI and vendor information for all possible MAC addresses in the packet.
@@ -1142,6 +1303,8 @@ def extract_oui_and_vendor_information(packet):
     :param packet: Scapy packet object to be analyzed.
     :return: A dictionary of MAC addresses, OUI, and corresponding vendor information.
     """
+    #HeaderWindow.UpdateLine(1,40,f"Function: {inspect.currentframe().f_code.co_name}        ")
+
     mac_info = {}
 
     def get_vendor_and_oui(mac):
@@ -1271,6 +1434,7 @@ def extract_oui_and_vendor_information(packet):
     return mac_info
 
 
+@profile_decorator
 def identify_packet_layers(packet):
     """
     Identifies all the layers present in the packet and returns a list of protocol names.
@@ -1278,6 +1442,8 @@ def identify_packet_layers(packet):
     :param packet: Scapy packet object to be analyzed.
     :return: A list of strings representing the identified layers.
     """
+    #HeaderWindow.UpdateLine(1,40,f"Function: {inspect.currentframe().f_code.co_name}        ")
+
     layers = []
 
     # Use a while loop to iterate through all layers
@@ -1298,7 +1464,7 @@ def identify_packet_layers(packet):
 
    
 
-
+@profile_decorator
 def identify_packet_type(packet):
     """
     Identifies the type of packet and returns a string indicating the protocol.
@@ -1307,6 +1473,7 @@ def identify_packet_type(packet):
     :return: A string representing the identified packet type.
     """
 
+    #HeaderWindow.UpdateLine(1,40,f"Function: {inspect.currentframe().f_code.co_name}        ")
 
     if packet.haslayer(DHCP):
         return "DHCP Packet"
@@ -1353,6 +1520,7 @@ def identify_packet_type(packet):
 
 
 
+@profile_decorator
 def get_packet_details_as_string(packet):
     """
     Extracts all information from a packet and returns it as a formatted string.
@@ -1424,8 +1592,11 @@ def print_oui_stats(oui_dict,InfoWindow):
 #  MAIN PROCESSING                                        #
 ###########################################################
 
+@profile_decorator
 def channel_hopper(interface, hop_interval, max_retries=3):
     global current_channel_info
+
+    band = None
 
     # Define available channels for 2.4 GHz and 5 GHz
     #channels_24ghz = list(range(1, 14))  # Channels 1 to 13 for 2.4 GHz
@@ -1467,12 +1638,12 @@ def channel_hopper(interface, hop_interval, max_retries=3):
                     # Successfully set the channel, break the retry loop
                     break
                 else:
-                    InfoWindow.ScrollPrint(f"Failed to set channel {current_channel}, retry {retries + 1}/{max_retries}", Color=3)
+                    #InfoWindow.ScrollPrint(f"Failed to set channel {current_channel}, retry {retries + 1}/{max_retries}", Color=3)
                     retries += 1
 
             # If max retries are reached, mark the channel as disabled
             if retries == max_retries:
-                InfoWindow.ScrollPrint(f"Max retries reached for channel {current_channel}, marking it as disabled.", Color=1)
+                #InfoWindow.ScrollPrint(f"Max retries reached for channel {current_channel}, marking it as disabled.", Color=1)
                 disabled_channels.add(current_channel)
 
             # If the channel was successfully set, update current channel info
@@ -1491,7 +1662,15 @@ def channel_hopper(interface, hop_interval, max_retries=3):
                     }
                 # Wait for the specified hop interval before switching channels again
                 #InfoWindow.ScrollPrint(f"Successfully set to {current_channel_info['band']} - Channel {current_channel} - Freq. {current_channel_info['frequency']} MHz", Color=5)
-                time.sleep(hop_interval)
+                
+                band = current_channel_info["band"]
+                
+                
+                # 2.4 has more traffic so we will hopt through the 5Ghz channels faster
+                if band == '2.4 GHz':
+                  time.sleep(hop_interval)
+                else:
+                  time.sleep(hop_interval/hop_modifier)
 
             # Move to the next channel (wrap around if at the end)
             channel_index = (channel_index + 1) % len(all_channels)
@@ -1503,6 +1682,7 @@ def channel_hopper(interface, hop_interval, max_retries=3):
 
 
 
+@profile_decorator
 def log_active_threads():
     """
     Logs detailed information about all active threads.
@@ -1667,7 +1847,7 @@ def main(stdscr):
         # Keep the curses interface running
         while True:
             time.sleep(main_interval)
-
+            
             # Safely read GPS coordinates
             with gps_lock:
                 current_latitude = latitude

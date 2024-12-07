@@ -52,21 +52,6 @@ class BaseTextInterface:
         # Setup logging once
         logging.basicConfig(filename=f'{self.name}.log', level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
-    def error_handler(self, error_message, trace_message, additional_info=""):
-        # Log the error
-        logging.debug(f"ERROR: {error_message}")
-        logging.debug(f"TRACE: {trace_message}")
-        if additional_info:
-            logging.debug(f"Additional Info: {additional_info}")
-
-        # Optionally print to console
-        # print("ERROR - An error occurred in TextWindow or TextPad class.")
-        # print(error_message)
-        # print("TRACE")
-        # print(trace_message)
-        # if additional_info:
-        #     print("Additional info:", additional_info)
-
 
 
 
@@ -219,27 +204,37 @@ class TextWindow(BaseTextInterface):
           self.ErrorHandler(ErrorMessage, TraceMessage, AdditionalInfo)                           
 
 
-    def DisplayTitle(self, Title=''):
-        # Display the object's title, or a custom one 
-        DisplayTitle = self.title 
 
-        if DisplayTitle == '':
-            DisplayTitle = Title
-       
-        
+    def DisplayTitle(self, Title='', x=2, filler='─'):
+        # Display the object's title, or a custom one 
+        # Use self.title if available, otherwise fall back to Title
+        DisplayTitle = self.title if self.title else Title
+        DisplayTitle = Title if Title != '' else self.title 
+
+        # Replace spaces in the title with the filler character
+        DisplayTitle = DisplayTitle.replace(' ', filler)
+
+        # Ensure that the title length fits within the window width minus a buffer
+        max_title_length = max(self.DisplayColumns - 3, 0)
+        DisplayTitle = DisplayTitle[:max_title_length]
+
         try:
-            DisplayTitle = DisplayTitle[0:self.DisplayColumns - 3]
-            self.window.attron(curses.color_pair(self.TitleColor))
+            # Only display the title if there are enough rows in the window
             if self.rows > 2:
-                self.window.addstr(0, 2, Title)
+                self.window.attron(curses.color_pair(self.TitleColor))
+                self.window.addstr(0, x, DisplayTitle)
+                self.window.attroff(curses.color_pair(self.TitleColor))
             else:
                 print("ERROR - You cannot display title on a window smaller than 3 rows")
-            self.window.attroff(curses.color_pair(self.TitleColor))
 
         except Exception as ErrorMessage:
+            # Capture detailed error information for debugging
             TraceMessage = traceback.format_exc()
-            AdditionalInfo = "Title: " + DisplayTitle
+            AdditionalInfo = f"Title: {DisplayTitle}"
             self.ErrorHandler(ErrorMessage, TraceMessage, AdditionalInfo)
+
+
+
 
     def Clear(self):
         self.window.erase()
