@@ -7,3 +7,4 @@ packet_log.csv
 PacketWindow.log
 oui_dict.json
 FriendlyDevices.json
+packet.db
