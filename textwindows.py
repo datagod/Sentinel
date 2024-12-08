@@ -37,6 +37,60 @@
 #              determine the calling function in the error handler.          --
 #------------------------------------------------------------------------------
 
+#------------------------------------------------------------------------------
+# Queue Processing in TextWindow Module                                      --
+#                                                                            --
+# This module includes a global queue processing mechanism designed to       --
+# handle asynchronous message delivery to TextWindow instances. The          --
+# queue allows messages to be enqueued along with metadata (e.g., target     --
+# window name, text color, timestamp) and processed independently, enabling  --
+# smooth, non-blocking updates to text-based windows in a curses interface.  --
+#                                                                            --
+# How It Works:                                                              --
+# 1. **Global Message Queue**:                                               --
+#    - A thread-safe queue (`message_queue`) is used to store messages.       --
+#    - Each message includes the target window name and associated details.  --
+#                                                                            --
+# 2. **Message Enqueuing**:                                                  --
+#    - The `EnqueuePrint` method in `TextWindow` allows messages to be added --
+#      to the queue, specifying the text to display, color, timestamp, and   --
+#      formatting options.                                                   --
+#                                                                            --
+# 3. **Queue Processor**:                                                    --
+#    - A dedicated thread (`queue_processor_thread`) runs continuously to    --
+#      process messages from the queue.                                      --
+#    - For each message, the processor identifies the target window (by name)--
+#      and invokes the `ScrollPrint` method to display the message.          --
+#    - If the target window does not exist, an error is logged but the       --
+#      processor continues without interruption.                             --
+#                                                                            --
+# 4. **Benefits**:                                                           --
+#    - Decouples message generation from rendering, allowing multiple        --
+#      threads or systems to enqueue messages without blocking.              --
+#    - Enables centralized control of message rendering, simplifying logging --
+#      and debugging of text output.                                         --
+#                                                                            --
+# 5. **Thread Safety**:                                                      --
+#    - The `queue.Queue` ensures safe concurrent access to the message queue,--
+#      avoiding race conditions when multiple threads enqueue messages.      --
+#                                                                            --
+# Usage:                                                                     --
+# - Create TextWindow instances and use their `EnqueuePrint` method to send  --
+#   messages to the queue. The queue processor will handle rendering.         --
+#                                                                            --
+# Example:                                                                   --
+#   window1 = TextWindow('Window1', 'Title1', 10, 40, 0, 0, 'Y', 2, 3)       --
+#   window1.EnqueuePrint("Hello, World!", Color=4, TimeStamp=True)           --
+#                                                                            --
+# Notes:                                                                     --
+# - The queue processor thread starts automatically when the module is       --
+#   imported, ensuring seamless message handling.                            --
+# - For graceful shutdown, you can signal the processor to stop by enqueuing --
+#   a special sentinel value (e.g., `None`).                                 --
+#                                                                            --
+#------------------------------------------------------------------------------ 
+
+
 import curses
 import traceback
 from datetime import datetime
@@ -44,6 +98,7 @@ import time
 import sys
 import inspect
 import logging
+import threading
 
 
 class BaseTextInterface:
@@ -128,6 +183,21 @@ class TextWindow(BaseTextInterface):
         else:
             self.CurrentRow = 0
             self.StartColumn = 0
+
+
+
+    def QueuePrint(self, message, Color=2, TimeStamp=False, BoldLine=True):
+        """
+        Add a message to the global queue for this window.
+        """
+        message_queue.put({
+            "window_name": self.name,
+            "message": message,
+            "Color": Color,
+            "TimeStamp": TimeStamp,
+            "BoldLine": BoldLine
+        })
+
 
 
 
@@ -300,7 +370,34 @@ class TextWindow(BaseTextInterface):
 
 
 
+    @staticmethod
+    def ProcessQueue():
+        """
+        Continuously process the global message queue and call ScrollPrint for the appropriate window.
+        """
+        while True:
+            try:
+                # Get the next message from the queue
+                item = message_queue.get()
+                if item is None:
+                    break  # Exit loop if None is received
 
+                # Extract details
+                window_name = item["window_name"]
+                message = item["message"]
+                Color = item.get("Color", 2)
+                TimeStamp = item.get("TimeStamp", False)
+                BoldLine = item.get("BoldLine", True)
+
+                # Find the window and call ScrollPrint
+                window = TextWindow.windows.get(window_name)
+                if window:
+                    window.ScrollPrint(message, Color=Color, TimeStamp=TimeStamp, BoldLine=BoldLine)
+                else:
+                    logging.debug(f"Window '{window_name}' not found for message: {message}")
+
+            except Exception as e:
+                logging.debug(f"Error processing message queue: {e}")
 
 
 
@@ -596,3 +693,6 @@ def get_screen_dimensions(stdscr):
 curses.wrapper(lambda stdscr: print(get_screen_dimensions(stdscr)))
 
 
+# Start the queue processing thread automatically
+queue_processor_thread = threading.Thread(target=TextWindow.ProcessQueue, daemon=True)
+queue_processor_thread.start()

@@ -605,7 +605,7 @@ def save_DB_Packet(DBPacket):
             DBPacket.get('Band'),
             DBPacket.get('Channel'),
             DBPacket.get('Longitude'),
-            DBPacket.get('Latitude')
+            DBPacket.get('Latitude'),
             DBPacket.get('Signal')
         ))
 
@@ -964,7 +964,7 @@ def process_packet(packet):
         'Band'        : band,
         'Channel'     : channel,
         'Latitude'    : current_latitude,
-        'Longitude'   : current_longitude
+        'Longitude'   : current_longitude,
         'Signal'      : signal
         }
     
