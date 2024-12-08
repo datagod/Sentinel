@@ -587,8 +587,8 @@ def save_DB_Packet(DBPacket):
         INSERT INTO Packet (
             FriendlyName, FriendlyType, PacketType, DeviceType, 
             SourceMAC, SourceVendor, DestMAC, DestVendor, 
-            SSID, Band, Channel, Latitude, Longitude
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            SSID, Band, Channel, Latitude, Longitude, Signal
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         '''
 
         # Execute the insert statement with provided packet information
@@ -606,6 +606,7 @@ def save_DB_Packet(DBPacket):
             DBPacket.get('Channel'),
             DBPacket.get('Longitude'),
             DBPacket.get('Latitude')
+            DBPacket.get('Signal')
         ))
 
         # Commit the changes 
@@ -964,6 +965,7 @@ def process_packet(packet):
         'Channel'     : channel,
         'Latitude'    : current_latitude,
         'Longitude'   : current_longitude
+        'Signal'      : signal
         }
     
       DBQueue.put(DBPacket)

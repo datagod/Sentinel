@@ -32,7 +32,8 @@ try:
         Band         TEXT,
         Channel      TEXT,
         Latitude     REAL,
-        Longitude    REAL
+        Longitude    REAL,
+        Signal       INTEGER
 
     );
     '''
