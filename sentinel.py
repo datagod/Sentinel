@@ -50,6 +50,8 @@ from cachetools import TTLCache
 
 import netaddr
 import threading
+import argparse
+from colorama import Fore, Back, Style, init
 
 from scapy.all import *
 from scapy.layers.l2 import Dot3, Dot1Q, Ether, ARP
@@ -71,6 +73,7 @@ profile_lock   = threading.Lock()
 profiling_data = {}                # Dictionary to store function run times
 
 
+curses_enabled          = True
 current_channel_info    = {"channel": None, "band": None, "frequency": None}
 displayed_packets_cache = TTLCache(maxsize=10000, ttl=900)   #entry expires after 15 minutes
 friendly_device_cache   = TTLCache(maxsize=10000, ttl=3600)  #entry expires after 1 hour
@@ -94,7 +97,7 @@ hop_interval      = 1  #Interval in seconds between channel hops
 hop_modifier      = 5    #modifies the hop interval so we don't wait as long on 5Ghz channels 
 main_interval     = 30   #Interval in seconds for the main loop
 gps_interval      = 1    #Interval in seconds for the GPS check
-HeaderUpdateSpeed = 5
+HeaderUpdateSpeed = 1
 
 
 
@@ -127,8 +130,36 @@ HeaderWidth   = 80
 #                                                                  --
 #--------------------------------------------------------------------
 
-os.system('clear') #clear the terminal (optional)
-os.system("figlet 'SENTINEL PASSIVE SURVEILLANCE SYSTEM'")
+
+
+def ErrorHandler(ErrorMessage='',TraceMessage='',AdditionalInfo=''):
+  CallingFunction =  inspect.stack()[1][3]
+  #FinalCleanup(stdscr)
+  print("")
+  print("")
+  print("--------------------------------------------------------------")
+  print("ERROR - Function (",CallingFunction, ") has encountered an error. ")
+  print(ErrorMessage)
+  print("")
+  print("")
+  print("TRACE")
+  print(TraceMessage)
+  print("")
+  print("")
+  if (AdditionalInfo != ""):
+    print("Additonal info:",AdditionalInfo)
+    print("")
+    print("")
+  print("--------------------------------------------------------------")
+  print("")
+  print("")
+  
+
+
+
+
+
+
 
 
 
@@ -202,22 +233,22 @@ def get_profile_summary(top_x=5):
     functions_with_avg_times.sort(key=lambda x: x["avg_time"], reverse=True)
 
     # Display the top X slowest functions
-    InfoWindow.ScrollPrint(f"Top {top_x} Slowest Functions by Average Runtime:\n")
+    InfoWindow.QueuePrint(f"Top {top_x} Slowest Functions by Average Runtime:\n")
     for i, function_data in enumerate(functions_with_avg_times[:top_x]):
-        InfoWindow.ScrollPrint(f"{i + 1}. Function: {function_data['function_name']}")
-        InfoWindow.ScrollPrint(f"   Calls:    {function_data['call_count']}")
-        InfoWindow.ScrollPrint(f"   Avg Time: {function_data['avg_time']:.2f} seconds")
-        InfoWindow.ScrollPrint(f"   Min Time: {function_data['min_time']:.2f} seconds")
-        InfoWindow.ScrollPrint(f"   Max Time: {function_data['max_time']:.2f} seconds\n")
+        InfoWindow.QueuePrint(f"{i + 1}. Function: {function_data['function_name']}")
+        InfoWindow.QueuePrint(f"   Calls:    {function_data['call_count']}")
+        InfoWindow.QueuePrint(f"   Avg Time: {function_data['avg_time']:.2f} seconds")
+        InfoWindow.QueuePrint(f"   Min Time: {function_data['min_time']:.2f} seconds")
+        InfoWindow.QueuePrint(f"   Max Time: {function_data['max_time']:.2f} seconds\n")
     
     # Optionally, display all the functions in the order of their performance
-    # InfoWindow.ScrollPrint("\nDetailed profiling summary for all functions:\n")
+    # InfoWindow.QueuePrint("\nDetailed profiling summary for all functions:\n")
     # for function_data in functions_with_avg_times:
-    #     InfoWindow.ScrollPrint(f"Function '{function_data['function_name']}':")
-    #     InfoWindow.ScrollPrint(f"  Calls: {function_data['call_count']}")
-    #     InfoWindow.ScrollPrint(f"  Avg Time: {function_data['avg_time']:.4f} seconds")
-    #     InfoWindow.ScrollPrint(f"  Min Time: {function_data['min_time']:.4f} seconds")
-    #     InfoWindow.ScrollPrint(f"  Max Time: {function_data['max_time']:.4f} seconds\n")
+    #     InfoWindow.QueuePrint(f"Function '{function_data['function_name']}':")
+    #     InfoWindow.QueuePrint(f"  Calls: {function_data['call_count']}")
+    #     InfoWindow.QueuePrint(f"  Avg Time: {function_data['avg_time']:.4f} seconds")
+    #     InfoWindow.QueuePrint(f"  Min Time: {function_data['min_time']:.4f} seconds")
+    #     InfoWindow.QueuePrint(f"  Max Time: {function_data['max_time']:.4f} seconds\n")
 
 
 
@@ -320,7 +351,7 @@ def get_current_gps_coordinates():
                 # Add a delay between GPS reads to avoid busy waiting
                 time.sleep(gps_interval)  # Adjust as needed for acceptable update frequency
     except Exception as e:
-        InfoWindow.ScrollPrint(f"Error in GPS Thread: {e}")
+        InfoWindow.QueuePrint(f"Error in GPS Thread: {e}")
         
 
 
@@ -403,26 +434,26 @@ def get_vendor(mac, oui_dict):
 
     # Extract the OUI prefix (first 8 characters)
     mac_prefix = normalize_mac(mac[:8])  # Normalize delimiter format
-    InfoWindow.ScrollPrint(f"Looking up MAC Prefix: {mac_prefix}")
+    InfoWindow.QueuePrint(f"Looking up MAC Prefix: {mac_prefix}")
 
     # Check if the OUI prefix is already in the cache
     if mac_prefix in vendor_cache:
-        InfoWindow.ScrollPrint(f"Cache Hit for {mac_prefix}")
+        InfoWindow.QueuePrint(f"Cache Hit for {mac_prefix}")
         return vendor_cache[mac_prefix]
 
     # Lookup in the OUI dictionary
     if mac_prefix in oui_dict:
         vendor_info = oui_dict[mac_prefix]
-        InfoWindow.ScrollPrint(f"Vendor Found: {vendor_info}")
+        InfoWindow.QueuePrint(f"Vendor Found: {vendor_info}")
     else:
         # Fallback: Use netaddr to try and fetch vendor info if not in oui_dict
         try:
             MAC = netaddr.EUI(mac)
             vendor_info = (MAC.oui.registration().org, "No Long Description Available")
-            InfoWindow.ScrollPrint(f"Fallback Vendor Info from netaddr: {vendor_info}")
+            InfoWindow.QueuePrint(f"Fallback Vendor Info from netaddr: {vendor_info}")
         except (netaddr.core.NotRegisteredError, ValueError):
             vendor_info = ("UNKNOWN", "UNKNOWN")
-            InfoWindow.ScrollPrint(f"Vendor Not Found for {mac_prefix}")
+            InfoWindow.QueuePrint(f"Vendor Not Found for {mac_prefix}")
 
     # Store the found result in the vendor_cache for future lookups
     vendor_cache[mac_prefix] = vendor_info
@@ -611,12 +642,12 @@ def save_DB_Packet(DBPacket):
 
         # Commit the changes 
         DBConnection.commit()
-        #InfoWindow.ScrollPrint("Connection Closed")
+        #InfoWindow.QueuePrint("Connection Closed")
 
         
         #print("Packet data inserted successfully.")
     except sqlite3.Error as e:
-        InfoWindow.ScrollPrint(f"SQLite error: {e}")
+        InfoWindow.QueuePrint(f"SQLite error: {e}")
     #finally:
         # Ensure the connection is closed
         #conn.close()
@@ -636,11 +667,13 @@ def packet_callback(packet):
         # Add packet to the queues for processing and saving by other threads
         PacketQueue.put(packet)
         
-
-        
+       
     except Exception as e:
         TraceMessage = traceback.format_exc()
-        InfoWindow.ErrorHandler(str(e), TraceMessage, "**Error in packet callback**")
+        if curses_enabled:
+          InfoWindow.ErrorHandler(str(e), TraceMessage, "**Error in packet callback**")
+        else:
+          ErrorHandler(TraceMessage)
 
 
 @profile_decorator
@@ -655,6 +688,8 @@ def process_PacketQueue():
 
             process_packet(packet)
 
+            
+
             # Signal that processing of this item is done
             PacketQueue.task_done()
 
@@ -662,7 +697,10 @@ def process_PacketQueue():
             # Use the current thread's name to improve diagnostics
             thread_name  = threading.current_thread().name
             TraceMessage = traceback.format_exc()
-            InfoWindow.ErrorHandler(f"[{thread_name}] {str(e)}", TraceMessage, "Error in packet processing thread")
+            if curses_enabled:
+              InfoWindow.ErrorHandler(f"[{thread_name}] {str(e)}", TraceMessage, "Error in packet processing thread")
+            else:
+              ErrorHandler(thread_name,TraceMessage)
 
 
 @profile_decorator
@@ -675,14 +713,17 @@ def process_DBQueue():
 
     #Database connections
     DBConnection = sqlite3.connect(PacketDB)
-    InfoWindow.ScrollPrint("Database connection established.")
+    if curses_enabled:
+      InfoWindow.QueuePrint("Database connection established.")
+    else:
+      print("Database connection established.")
 
 
     while True:
         try:
             # Retrieve a packet from the DBqueue (wait indefinitely if empty)
             DBpacket = DBQueue.get()
-            #InfoWindow.ScrollPrint("Got a packet from the DBQueue")
+            #InfoWindow.QueuePrint("Got a packet from the DBQueue")
 
             save_DB_Packet(DBpacket)
             PacketsSavedToDBCount = PacketsSavedToDBCount + 1
@@ -693,7 +734,10 @@ def process_DBQueue():
             # Use the current thread's name to improve diagnostics
             thread_name = threading.current_thread().name
             TraceMessage = traceback.format_exc()
-            InfoWindow.ErrorHandler(f"[{thread_name}] {str(e)}", TraceMessage, "Error in DBQueue processing thread")
+            if curses_enabled:
+              InfoWindow.ErrorHandler(f"[{thread_name}] {str(e)}", TraceMessage, "Error in DBQueue processing thread")
+            else:
+              ErrorHandler(TraceMessage)
             
 
 
@@ -780,11 +824,11 @@ def process_packet(packet):
       #We will focus on WIFI packets for this project
       mac_details   = extract_oui_and_vendor_information(packet)
 
-      #RawWindow.ScrollPrint(f"==========================================")
-      #RawWindow.ScrollPrint(f"mac_details: {mac_details}")
+      #RawWindow.QueuePrint(f"==========================================")
+      #RawWindow.QueuePrint(f"mac_details: {mac_details}")
       
       # Iterate through each key-value pair in the mac_info dictionary
-      #InfoWindow.ScrollPrint("-----MAC DETAILS-------------------------------")
+      #InfoWindow.QueuePrint("-----MAC DETAILS-------------------------------")
       
       
       
@@ -802,7 +846,7 @@ def process_packet(packet):
         # Iterate through each key-value pair in the mac_details dictionary
         for mac_type, details in mac_details.items():
             # Check if the current type indicates a source MAC
-            #InfoWindow.ScrollPrint(f"mac_type: {mac_type}")
+            #InfoWindow.QueuePrint(f"mac_type: {mac_type}")
 
             if 'SOURCE' in mac_type.upper():
                 # Extract the MAC address and normalize it
@@ -811,9 +855,9 @@ def process_packet(packet):
                 # Check if the source MAC is valid
                 if source_mac != 'UNKNOWN' and source_mac is not None:
                     # Log the found source MAC and stop processing
-                    #InfoWindow.ScrollPrint(f"Found valid source_mac: {source_mac}")
+                    #InfoWindow.QueuePrint(f"Found valid source_mac: {source_mac}")
                     source_vendor = details.get('Vendor', 'UNKNOWN')
-                    #InfoWindow.ScrollPrint(f"Vendor: {source_vendor}")
+                    #InfoWindow.QueuePrint(f"Vendor: {source_vendor}")
                     break  # Exit the loop once the first valid source MAC is found
 
             # Optionally handle destination MACs or other details
@@ -870,10 +914,15 @@ def process_packet(packet):
     except Exception as ErrorMessage:
       TraceMessage   = traceback.format_exc()
       AdditionalInfo = f"Processing Packet: {format_packet(packet)}"
-      InfoWindow.ScrollPrint(TraceMessage)
-      InfoWindow.ScrollPrint(PrintLine=ErrorMessage)
-      InfoWindow.ErrorHandler(ErrorMessage,TraceMessage,AdditionalInfo)
-      InfoWindow.ScrollPrint(f"Error parsing packet: {ErrorMessage}")
+
+      if curses_enabled:
+        InfoWindow.QueuePrint(TraceMessage)
+        InfoWindow.QueuePrint(PrintLine=ErrorMessage)
+        InfoWindow.ErrorHandler(ErrorMessage,TraceMessage,AdditionalInfo)
+        InfoWindow.QueuePrint(f"Error parsing packet: {ErrorMessage}")
+      else:
+        ErrorHandler(TraceMessage,AdditionalInfo)
+          
 
     # Create a unique key for the packet based on important fields
     source_mac, ssid, source_vendor, DeviceType, signal = replace_none_with_unknown(source_mac, ssid, source_vendor, DeviceType, signal)
@@ -901,49 +950,44 @@ def process_packet(packet):
         friendly_key_count = len(friendly_device_cache)
 
 
-        #DetailsWindow.ScrollPrint(f"{key_count} - {FriendlyName} - {FriendlyType} - {FriendlyBrand} - {ssid}")
+        #DetailsWindow.QueuePrint(f"{key_count} - {FriendlyName} - {FriendlyType} - {FriendlyBrand} - {ssid}")
+        if curses_enabled:
+          FormattedString = format_into_columns(DetailsWindow.columns, FriendlyName,  FriendlyType,   FriendlyBrand,   ssid, (f"{band} {channel} {signal}dB"))
+          DetailsWindow.QueuePrint(FormattedString)
 
-        FormattedString = format_into_columns(DetailsWindow.columns, FriendlyName,  FriendlyType,   FriendlyBrand,   ssid, (f"{band} {channel} {signal}dB"))
-        DetailsWindow.ScrollPrint(FormattedString)
-
-        FormattedString = format_into_columns(DetailsWindow.columns, 'FriendlyName','FriendlyType', 'FriendlyBrand', 'SSID','Band/Channel/Signal')
-        DetailsWindow.DisplayTitle(FormattedString,x=1)
-
+        
 
       else:
-          PacketWindow.ScrollPrint('INTRUDER DETAILS',Color=1)
-
-          
           #Format a string for the Detail Window display
-          FormattedString = format_into_columns(
-            DetailsWindow.columns, 
-            DeviceType, 
-            (source_mac if (source_mac != 'UNKNOWN' and source_mac is not None) else source_oui) , 
-            f"{source_vendor} {source_oui}",
-            ssid, 
-            (f"{band} {channel} {signal}dB")
-            )
-         
-          DetailsWindow.ScrollPrint(FormattedString,Color=3)
+          if curses_enabled:
+            FormattedString = format_into_columns(
+                DetailsWindow.columns, 
+                DeviceType, 
+                (source_mac if (source_mac != 'UNKNOWN' and source_mac is not None) else source_oui) , 
+                f"{source_vendor} {source_oui}",
+                ssid, 
+                (f"{band} {channel} {signal}dB")
+                )
+            PacketWindow.QueuePrint('INTRUDER DETAILS',Color=1)
+            DetailsWindow.QueuePrint(FormattedString,Color=3)
 
 
-      PacketWindow.ScrollPrint(f'CaptureDate:   {timestamp}')
-      if FriendlyName is not None:
-        PacketWindow.ScrollPrint(f'FriendlyName:  {FriendlyName}')    
-        PacketWindow.ScrollPrint(f'FriendlyType:  {FriendlyType}')    
-    
-        
-      PacketWindow.ScrollPrint(f'PacketType:    {PacketType}')
-      PacketWindow.ScrollPrint(f'DeviceType:    {DeviceType}')
-      PacketWindow.ScrollPrint(f'Source MAC:    {source_mac}')
-      PacketWindow.ScrollPrint(f'Source Vendor: {source_vendor}')
-      PacketWindow.ScrollPrint(f'Dest MAC:      {dest_mac}')
-      PacketWindow.ScrollPrint(f'Dest Vendor:   {dest_vendor}')
-      PacketWindow.ScrollPrint(f'SSID:          {ssid}')
-      PacketWindow.ScrollPrint(f'Band:          {band}')
-      PacketWindow.ScrollPrint(f'channel:       {channel}')
-      PacketWindow.ScrollPrint(f'signal:        {signal} dB')
-      PacketWindow.ScrollPrint('---------------------------------------------------')
+      if curses_enabled:
+        PacketWindow.QueuePrint(f'CaptureDate:   {timestamp}')
+        if FriendlyName is not None:
+            PacketWindow.QueuePrint(f'FriendlyName:  {FriendlyName}')    
+            PacketWindow.QueuePrint(f'FriendlyType:  {FriendlyType}')    
+        PacketWindow.QueuePrint(f'PacketType:    {PacketType}')
+        PacketWindow.QueuePrint(f'DeviceType:    {DeviceType}')
+        PacketWindow.QueuePrint(f'Source MAC:    {source_mac}')
+        PacketWindow.QueuePrint(f'Source Vendor: {source_vendor}')
+        PacketWindow.QueuePrint(f'Dest MAC:      {dest_mac}')
+        PacketWindow.QueuePrint(f'Dest Vendor:   {dest_vendor}')
+        PacketWindow.QueuePrint(f'SSID:          {ssid}')
+        PacketWindow.QueuePrint(f'Band:          {band}')
+        PacketWindow.QueuePrint(f'channel:       {channel}')
+        PacketWindow.QueuePrint(f'signal:        {signal} dB')
+        PacketWindow.QueuePrint('---------------------------------------------------')
 
     
       #--------------------------------------
@@ -995,11 +1039,52 @@ def process_packet(packet):
        10: f"Longitude:           {current_longitude}       ",
       }
   
-      HeaderWindow.set_fixed_lines(HeaderLines,Color=2)
-
-
+      if curses_enabled:
+        HeaderWindow.set_fixed_lines(HeaderLines,Color=2)
+      else:
+        # Create a dense single-line string for console output
+        console_output = (
+            f"{PacketCount} | "
+            f"{PacketType} | "
+            f"Type: {DeviceType} | "
+            f"MAC: {source_mac} | "
+            f"Vendor: {source_vendor} | "
+            f"SSID: {ssid or 'N/A'} | "
+            f"{band} {channel} {signal}dB | "
+            f"Lat: {current_latitude or 'N/A'} | "
+            f"Long: {current_longitude or 'N/A'}"
+        )
+     
+        # Print to the console
+        print(console_output)
+        
       
-      
+    '''
+    if not curses_enabled:
+        # Create a formatted string for console output
+        console_output = (
+            f"Packet Count:       {PacketCount}\n"
+            f"Capture Date:       {timestamp}\n"
+            f"Friendly Name:      {FriendlyName or 'N/A'}\n"
+            f"Friendly Type:      {FriendlyType or 'N/A'}\n"
+            f"Packet Type:        {PacketType}\n"
+            f"Device Type:        {DeviceType}\n"
+            f"Source MAC:         {source_mac}\n"
+            f"Source Vendor:      {source_vendor}\n"
+            f"Destination MAC:    {dest_mac}\n"
+            f"Destination Vendor: {dest_vendor}\n"
+            f"SSID:               {ssid or 'N/A'}\n"
+            f"Band:               {band}\n"
+            f"Channel:            {channel}\n"
+            f"Signal Strength:    {signal} dB\n"
+            f"Latitude:           {current_latitude or 'N/A'}\n"
+            f"Longitude:          {current_longitude or 'N/A'}\n"
+        )
+
+        # Print to the console
+        print(console_output)
+    '''
+
       # Print out Function timings
       #if random.randint(1,50) == 1:
       #  get_profile_summary(3)
@@ -1029,12 +1114,12 @@ def set_channel(interface, channel):
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if result.returncode == 0:
             return 0
-            #InfoWindow.ScrollPrint(f"Channel: {channel}",Color=6)
+            #InfoWindow.QueuePrint(f"Channel: {channel}",Color=6)
         else:
-            InfoWindow.ScrollPrint(f"Failed to set channel. Error: {result.stderr}",Color=6)
+            InfoWindow.QueuePrint(f"Failed to set channel. Error: {result.stderr}",Color=6)
             return -1
     except Exception as e:
-        InfoWindow.ScrollPrint(f"Error occurred while trying to set channel: {str(e)}",Color=6)
+        InfoWindow.QueuePrint(f"Error occurred while trying to set channel: {str(e)}",Color=6)
 
     
 
@@ -1125,14 +1210,14 @@ def sniff_packets(interface):
         
 
     try:
-        #InfoWindow.ScrollPrint(PrintLine='Sniffing Packets')
+        #InfoWindow.QueuePrint(PrintLine='Sniffing Packets')
         # Sniff packets continuously and send them to packet_callback for processing
         sniff(iface=interface, prn=packet_callback, store=0)
     except KeyboardInterrupt:
-        InfoWindow.ScrollPrint(PrintLine='Stopping...')
+        InfoWindow.QueuePrint(PrintLine='Stopping...')
     except Exception as ErrorMessage:
         TraceMessage   = traceback.format_exc()
-        InfoWindow.ErrorHandler(ErrorMessage,TraceMessage,'Erroor in sniff_packets function')
+        InfoWindow.ErrorHandler(ErrorMessage,TraceMessage,'Error in sniff_packets function')
 
 
 @profile_decorator
@@ -1251,12 +1336,12 @@ def analyze_packet(packet):
             packet_details['fields'] = {'Raw Data': packet.summary()}
 
         # Format the packet details for display
-        #InfoWindow.ScrollPrint(f"Packet Type: {packet_details['type']}")
+        #InfoWindow.QueuePrint(f"Packet Type: {packet_details['type']}")
         #for key, value in packet_details['fields'].items():
-        #    InfoWindow.ScrollPrint(f"{key}: {value}")
+        #    InfoWindow.QueuePrint(f"{key}: {value}")
 
     except Exception as e:
-        InfoWindow.ScrollPrint(f"Error analyzing packet: {e}")
+        InfoWindow.QueuePrint(f"Error analyzing packet: {e}")
         traceback.print_exc()
 
 
@@ -1276,11 +1361,14 @@ def get_monitor_mode_interface():
         # Check which interface is in monitor mode
         for iface, mode in interfaces:
             if mode == "monitor":
-                InfoWindow.ScrollPrint(f"Monitoring interface: {iface}")
+                if curses_enabled:
+                  InfoWindow.QueuePrint(f"Monitoring interface: {iface}")
+                else:
+                  print(f"Monitoring interface: {iface}")
                 return iface
 
     except subprocess.CalledProcessError as e:
-        InfoWindow.ScrollPrint(f"Error retrieving interface information: {e}")
+        print(f"Error retrieving interface information: {e}")
 
     return None
 
@@ -1336,16 +1424,16 @@ def extract_oui_and_vendor_information(packet):
                     with write_lock:
                         with open("oui_dict.json", 'w') as json_file:
                             json.dump(oui_dict, json_file, indent=4)
-                            InfoWindow.ScrollPrint("Updating OUI master file")
+                            InfoWindow.QueuePrint("Updating OUI master file")
 
-                    InfoWindow.ScrollPrint(f"Updated OUI master file: {mac_prefix} - {vendor}", Color=5)
+                    InfoWindow.QueuePrint(f"Updated OUI master file: {mac_prefix} - {vendor}", Color=5)
         except Exception as e:
-            #InfoWindow.ScrollPrint(" ")
-            #InfoWindow.ScrollPrint(" ")
-            #InfoWindow.ScrollPrint(f"Error: {e}")
+            #InfoWindow.QueuePrint(" ")
+            #InfoWindow.QueuePrint(" ")
+            #InfoWindow.QueuePrint(f"Error: {e}")
             return 'UNKNOWN', 'UNKNOWN'
 
-        #RawWindow.ScrollPrint(packet, Color=1)
+        #RawWindow.QueuePrint(packet, Color=1)
         return mac_prefix, vendor
 
     # Extract MAC addresses from various layers and retrieve their OUI and vendor info
@@ -1426,9 +1514,9 @@ def extract_oui_and_vendor_information(packet):
                     src_oui, src_vendor = get_vendor_and_oui(src_mac)
                     mac_info['802.3 Source MAC'] = {'MAC': src_mac, 'OUI': src_oui, 'Vendor': src_vendor}
     except Exception as e:
-        #InfoWindow.ScrollPrint("zzzzzzzzzzzzzzzzzzzzzz ")
-        #InfoWindow.ScrollPrint(" ")
-        #InfoWindow.ScrollPrint(f"Error: {e}")
+        #InfoWindow.QueuePrint("zzzzzzzzzzzzzzzzzzzzzz ")
+        #InfoWindow.QueuePrint(" ")
+        #InfoWindow.QueuePrint(f"Error: {e}")
         mac_info = None
         return mac_info
 
@@ -1559,32 +1647,45 @@ def get_packet_details_as_string(packet):
 # Function to print statistics about the OUI dictionary
 def print_oui_stats(oui_dict,InfoWindow):
 
-
-    InfoWindow.ScrollPrint("=== OUI Dictionary Statistics ===")
-    
     # Total number of entries
     total_entries = len(oui_dict)
-    InfoWindow.ScrollPrint(f"Total Number of OUI Entries: {total_entries}")
 
     # Count occurrences of vendors in the OUI dictionary
     vendor_counter = Counter()
-    for oui, (short_desc, long_desc) in oui_dict.items():
-        vendor_counter[short_desc] += 1
 
     # Number of unique vendors
     total_unique_vendors = len(vendor_counter)
-    InfoWindow.ScrollPrint(f"Total Number of Unique Vendors: {total_unique_vendors}")
 
     # Vendors with multiple OUIs
     vendors_with_multiple_ouis = {vendor: count for vendor, count in vendor_counter.items() if count > 1}
-    InfoWindow.ScrollPrint(f"Vendors with Multiple OUIs: {len(vendors_with_multiple_ouis)}")
-
-    # Print top vendors with the most OUI entries
-    InfoWindow.ScrollPrint("Top 25 Vendors with the Most OUI Entries:")
-    for vendor, count in vendor_counter.most_common(25):
-        InfoWindow.ScrollPrint(f"{vendor}: {count} entries")
 
 
+    if curses_enabled:
+        InfoWindow.QueuePrint("=== OUI Dictionary Statistics ===")
+        InfoWindow.QueuePrint(f"Total Number of OUI Entries: {total_entries}")
+        for oui, (short_desc, long_desc) in oui_dict.items():
+            vendor_counter[short_desc] += 1
+        InfoWindow.QueuePrint(f"Total Number of Unique Vendors: {total_unique_vendors}")
+        InfoWindow.QueuePrint(f"Vendors with Multiple OUIs: {len(vendors_with_multiple_ouis)}")
+
+        # Print top vendors with the most OUI entries
+        InfoWindow.QueuePrint("Top 25 Vendors with the Most OUI Entries:")
+        for vendor, count in vendor_counter.most_common(25):
+            InfoWindow.QueuePrint(f"{vendor}: {count} entries")
+
+    else:
+        print("=== OUI Dictionary Statistics ===")
+        print(f"Total Number of OUI Entries: {total_entries}")
+        for oui, (short_desc, long_desc) in oui_dict.items():
+            vendor_counter[short_desc] += 1
+        print(f"Total Number of Unique Vendors: {total_unique_vendors}")
+        print(f"Vendors with Multiple OUIs: {len(vendors_with_multiple_ouis)}")
+
+        # Print top vendors with the most OUI entries
+        print("Top 25 Vendors with the Most OUI Entries:")
+        for vendor, count in vendor_counter.most_common(25):
+            print(f"{vendor}: {count} entries")
+      
 
 
 
@@ -1627,7 +1728,7 @@ def channel_hopper(interface, hop_interval, max_retries=3):
             
             # Skip channel if it has been marked as disabled
             if current_channel in disabled_channels:
-                #InfoWindow.ScrollPrint(f"Skipping previously disabled channel {current_channel}", Color=3)
+                #InfoWindow.QueuePrint(f"Skipping previously disabled channel {current_channel}", Color=3)
                 channel_index = (channel_index + 1) % len(all_channels)
                 continue
 
@@ -1640,12 +1741,12 @@ def channel_hopper(interface, hop_interval, max_retries=3):
                     # Successfully set the channel, break the retry loop
                     break
                 else:
-                    #InfoWindow.ScrollPrint(f"Failed to set channel {current_channel}, retry {retries + 1}/{max_retries}", Color=3)
+                    #InfoWindow.QueuePrint(f"Failed to set channel {current_channel}, retry {retries + 1}/{max_retries}", Color=3)
                     retries += 1
 
             # If max retries are reached, mark the channel as disabled
             if retries == max_retries:
-                #InfoWindow.ScrollPrint(f"Max retries reached for channel {current_channel}, marking it as disabled.", Color=1)
+                #InfoWindow.QueuePrint(f"Max retries reached for channel {current_channel}, marking it as disabled.", Color=1)
                 disabled_channels.add(current_channel)
 
             # If the channel was successfully set, update current channel info
@@ -1663,7 +1764,7 @@ def channel_hopper(interface, hop_interval, max_retries=3):
                         "frequency": 5000 + (current_channel * 5)
                     }
                 # Wait for the specified hop interval before switching channels again
-                #InfoWindow.ScrollPrint(f"Successfully set to {current_channel_info['band']} - Channel {current_channel} - Freq. {current_channel_info['frequency']} MHz", Color=5)
+                #InfoWindow.QueuePrint(f"Successfully set to {current_channel_info['band']} - Channel {current_channel} - Freq. {current_channel_info['frequency']} MHz", Color=5)
                 
                 band = current_channel_info["band"]
                 
@@ -1680,7 +1781,7 @@ def channel_hopper(interface, hop_interval, max_retries=3):
             
 
     except KeyboardInterrupt:
-        InfoWindow.ScrollPrint("Channel hopping stopped by user.")
+        InfoWindow.QueuePrint("Channel hopping stopped by user.")
 
 
 
@@ -1690,8 +1791,8 @@ def log_active_threads():
     Logs detailed information about all active threads.
     """
     all_threads = threading.enumerate()
-    InfoWindow.ScrollPrint("=== Active Thread Report ===", Color=5)
-    InfoWindow.ScrollPrint(f"Total Active Threads: {len(all_threads)}", Color=5)
+    InfoWindow.QueuePrint("=== Active Thread Report ===", Color=5)
+    InfoWindow.QueuePrint(f"Total Active Threads: {len(all_threads)}", Color=5)
 
     for thread in all_threads:
         # Gathering detailed information for each thread
@@ -1703,12 +1804,12 @@ def log_active_threads():
 
         # Preparing the log message
         
-        InfoWindow.ScrollPrint(f"Thread Name    : {thread_name}",Color=3)
-        InfoWindow.ScrollPrint(f"Thread ID      : {thread_ident}",Color=3)
-        InfoWindow.ScrollPrint(f"Is Alive       : {'Yes' if is_alive else 'No'}",Color=3)
-        InfoWindow.ScrollPrint(f"Is Daemon      : {'Yes' if is_daemon else 'No'}",Color=3)
-        InfoWindow.ScrollPrint(f"Stack Size     : {stack_size} bytes",Color=3)
-        InfoWindow.ScrollPrint(f"--------------------------------------",Color=3)
+        InfoWindow.QueuePrint(f"Thread Name    : {thread_name}",Color=3)
+        InfoWindow.QueuePrint(f"Thread ID      : {thread_ident}",Color=3)
+        InfoWindow.QueuePrint(f"Is Alive       : {'Yes' if is_alive else 'No'}",Color=3)
+        InfoWindow.QueuePrint(f"Is Daemon      : {'Yes' if is_daemon else 'No'}",Color=3)
+        InfoWindow.QueuePrint(f"Stack Size     : {stack_size} bytes",Color=3)
+        InfoWindow.QueuePrint(f"--------------------------------------",Color=3)
        
 
 
@@ -1737,68 +1838,77 @@ def main(stdscr):
     global current_latitude
     global current_longitude
     global gps_stop_event
-    
+    global curses_enabled
 
     looping = True
     
+    print("main processor started")
 
-    # Call the helper function to initialize curses
-    textwindows.initialize_curses(stdscr)
+    #--------------------------------------
+    #-- Setup text windows 
+    #--------------------------------------
 
-    ScreenHeight, ScreenWidth = textwindows.get_screen_dimensions(stdscr)
+    if curses_enabled:
+        # Call the helper function to initialize curses
+        textwindows.initialize_curses(stdscr)
 
-    # Calculate window sizes for display
-    max_y, max_x = stdscr.getmaxyx()
-    window_width = max_x // HorizontalWindowCount
+        ScreenHeight, ScreenWidth = textwindows.get_screen_dimensions(stdscr)
+
+        # Calculate window sizes for display
+        max_y, max_x = stdscr.getmaxyx()
+        window_width = max_x // HorizontalWindowCount
+
+        # Create display windows
+        fixed_lines = [
+            (0, ""),
+            (1, ""),
+            (2, ""),
+            (3, ""),
+            (4, ""),
+            (5, ""),
+            (6, ""),
+            (7, ""),
+            (8, ""),
+            (9, ""),
+            (10, ""),
+        ]
     
-
-    # Create display windows
-    fixed_lines = [
-        (0, ""),
-        (1, ""),
-        (2, ""),
-        (3, ""),
-        (4, ""),
-        (5, ""),
-        (6, ""),
-        (7, ""),
-        (8, ""),
-        (9, ""),
-        (10, ""),
-    ]
-   
-    HeaderWindow  = textwindows.HeaderWindow(name='HeaderWindow', title='Header',    rows= HeaderHeight, columns=window_width,    y1=0, x1=0,                                 ShowBorder='Y', BorderColor=2, TitleColor=3,fixed_lines=fixed_lines)
-    DetailsWindow = textwindows.TextWindow  (name='DetailsWindow',title='Details',   rows=max_y - 1,     columns=window_width *2, y1=(HeaderHeight), x1=0,                    ShowBorder='Y', BorderColor=2, TitleColor=2)
-    PacketWindow  = textwindows.TextWindow  (name='PacketWindow', title='Packets',   rows=max_y - 1,     columns=window_width,    y1=(HeaderHeight), x1=window_width * 2,     ShowBorder='Y', BorderColor=2, TitleColor=2)
-    InfoWindow    = textwindows.TextWindow  (name='InfoWindow',   title='Extra Info',rows=max_y - 1,     columns=window_width,    y1=(HeaderHeight), x1=window_width * 3 + 1, ShowBorder='Y', BorderColor=2, TitleColor=2)
-    #RawWindow     = textwindows.TextWindow  (name='RawWindow',    title='Raw Data',  rows=max_y - 1,     columns=window_width,    y1=(HeaderHeight), x1=window_width * 4 + 1, ShowBorder='Y', BorderColor=2, TitleColor=2)
+        HeaderWindow  = textwindows.HeaderWindow(name='HeaderWindow', title='Header',    rows= HeaderHeight, columns=window_width,    y1=0, x1=0,                                 ShowBorder='Y', BorderColor=2, TitleColor=3,fixed_lines=fixed_lines)
+        DetailsWindow = textwindows.TextWindow  (name='DetailsWindow',title='Details',   rows=max_y - 1,     columns=window_width *2, y1=(HeaderHeight), x1=0,                    ShowBorder='Y', BorderColor=2, TitleColor=2)
+        PacketWindow  = textwindows.TextWindow  (name='PacketWindow', title='Packets',   rows=max_y - 1,     columns=window_width,    y1=(HeaderHeight), x1=window_width * 2,     ShowBorder='Y', BorderColor=2, TitleColor=2)
+        InfoWindow    = textwindows.TextWindow  (name='InfoWindow',   title='Extra Info',rows=max_y - 1,     columns=window_width,    y1=(HeaderHeight), x1=window_width * 3 + 1, ShowBorder='Y', BorderColor=2, TitleColor=2)
+        #RawWindow     = textwindows.TextWindow  (name='RawWindow',    title='Raw Data',  rows=max_y - 1,     columns=window_width,    y1=(HeaderHeight), x1=window_width * 4 + 1, ShowBorder='Y', BorderColor=2, TitleColor=2)
 
 
 
-    # Refresh windows for initial setup
-    HeaderWindow.DisplayTitle('Sentinel 1.0')
-    HeaderWindow.refresh()
+        # Refresh windows for initial setup
+        HeaderWindow.DisplayTitle('Sentinel 1.0')
+        HeaderWindow.refresh()
 
-    PacketWindow.DisplayTitle('Packet Info')
-    PacketWindow.refresh()
+        
+        PacketWindow.DisplayTitle('Packet Info')
+        PacketWindow.refresh()
+        
+        InfoWindow.DisplayTitle('Information')
+        InfoWindow.refresh()
+        
+        FormattedString = format_into_columns(DetailsWindow.columns, 'FriendlyName','FriendlyType', 'FriendlyBrand', 'SSID','Band/Channel/Signal')
+        DetailsWindow.DisplayTitle(FormattedString,x=1)
+        DetailsWindow.refresh()
+
+        #RawWindow.DisplayTitle('Raw Data')
+        #RawWindow.refresh()
     
-    InfoWindow.DisplayTitle('Information')
-    InfoWindow.refresh()
-    
-    DetailsWindow.DisplayTitle('Details')
-    DetailsWindow.refresh()
+        InfoWindow.QueuePrint(f"Height x Width {ScreenHeight}x{ScreenWidth}")    
 
-    #RawWindow.DisplayTitle('Raw Data')
-    #RawWindow.refresh()
+        # Start the queue processing thread automatically
+        queue_processor_thread = threading.Thread(target=textwindows.ProcessQueue, daemon=True)
+        queue_processor_thread.start()
 
-
-    
-    InfoWindow.ScrollPrint(f"Height x Width {ScreenHeight}x{ScreenWidth}")    
 
     # Load the OUI dictionary
     oui_dict = load_oui_dict_from_json("oui_dict.json")
     print_oui_stats(oui_dict, InfoWindow)
-
 
     # Load the friendly devices dictionary
     friendly_devices_dict = load_friendly_devices_dict("FriendlyDevices.json")
@@ -1807,14 +1917,14 @@ def main(stdscr):
     # Get the Wi-Fi interface in monitor mode
     interface = get_monitor_mode_interface()
     if interface is None:
-        InfoWindow.ScrollPrint("ERROR: No interface found in monitor mode. Exiting...")
+        InfoWindow.QueuePrint("ERROR: No interface found in monitor mode. Exiting...")
         return
 
 
-    
+    #--------------------------------------
+    #-- Start threads
+    #--------------------------------------
 
-
-    # Create and start the packet processing thread
     packet_processing_thread = threading.Thread(target=process_PacketQueue, name="PacketProcessingThread")
     packet_processing_thread.daemon = True  # Set as daemon so it exits with the main program
     packet_processing_thread.start()
@@ -1865,15 +1975,69 @@ def main(stdscr):
             #DetailsWindow.refresh()
 
     except KeyboardInterrupt:
-        InfoWindow.ScrollPrint("Stopping...")
-        
+        InfoWindow.QueuePrint("Stopping...")
+      
 
         gps_stop_event.set()
         gps_thread.join()  
 
 
-# Call main
-curses.wrapper(main)
+
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Sentinel Program")
+
+    # Add a parameter for Curses
+    parser.add_argument(
+        "--Raw",
+        choices=["Y", "N"],
+        default="N",
+        help="Raw = Y is for basic output, no  fancy text windows."
+    )
+
+    # Parse the arguments
+    args = parser.parse_args()
+
+    # Convert the input to a boolean for easier handling
+    curses_enabled = args.Raw == "N"
+
+    if curses_enabled:
+      curses.wrapper(main)
+    else:
+
+
+      # Initialize colorama for Windows compatibility
+      init()
+
+      # Foreground colors
+      #print(Fore.RED + "This is red text")
+      #print(Fore.GREEN + "This is green text")
+      #print(Fore.BLUE + "This is blue text")
+
+      # Background colors
+      #print(Back.YELLOW + "This has a yellow background")
+      #print(Back.CYAN + "This has a cyan background")
+
+      # Combined with style
+      #print(Style.BRIGHT + Fore.MAGENTA + "Bright magenta text")
+      #print(Style.DIM + Fore.WHITE + "Dim white text")
+
+      # Reset to default
+      #print(Style.RESET_ALL + "Back to normal")
+
+
+      print(Fore.RED)
+
+      os.system('clear') #clear the terminal (optional)
+      os.system("figlet 'SENTINEL PASSIVE SURVEILLANCE SYSTEM'")
+
+      print("###########################################################")
+      print("# SENTINEL RAW MODE                                       #")
+      print("###########################################################")
+      print(Fore.GREEN)
+      print("")
+      main('RawMode')
 
 
 

@@ -48,7 +48,7 @@
 #                                                                            --
 # How It Works:                                                              --
 # 1. **Global Message Queue**:                                               --
-#    - A thread-safe queue (`message_queue`) is used to store messages.       --
+#    - A thread-safe queue (`print_queue`) is used to store messages.       --
 #    - Each message includes the target window name and associated details.  --
 #                                                                            --
 # 2. **Message Enqueuing**:                                                  --
@@ -99,7 +99,9 @@ import sys
 import inspect
 import logging
 import threading
+import queue
 
+print_queue = queue.Queue()
 
 class BaseTextInterface:
     def __init__(self, name):
@@ -137,6 +139,10 @@ class BaseTextInterface:
 
 
 class TextWindow(BaseTextInterface):
+   # Class-level dictionary to store instances
+    windows = {}
+
+
     def __init__(self, name, title, rows, columns, y1, x1, ShowBorder, BorderColor, TitleColor):
         max_y, max_x = curses.LINES - 1, curses.COLS - 1
         self.rows = min(rows, max_y - y1)
@@ -152,6 +158,9 @@ class TextWindow(BaseTextInterface):
         self.ShowBorder = ShowBorder
         self.BorderColor = BorderColor  # pre-defined text colors 1-7
         self.TitleColor = TitleColor
+
+        # Add this instance to the class-level dictionary
+        TextWindow.windows[name] = self
 
         try:
             self.window = curses.newwin(self.rows, self.columns, self.y1, self.x1)
@@ -186,16 +195,17 @@ class TextWindow(BaseTextInterface):
 
 
 
-    def QueuePrint(self, message, Color=2, TimeStamp=False, BoldLine=True):
+    def QueuePrint(self, message, Color=2, TimeStamp=False, BoldLine=True,row=-1):
         """
         Add a message to the global queue for this window.
         """
-        message_queue.put({
+        print_queue.put({
             "window_name": self.name,
-            "message": message,
-            "Color": Color,
+            "message"  : message,
+            "Color"    : Color,
             "TimeStamp": TimeStamp,
-            "BoldLine": BoldLine
+            "BoldLine" : BoldLine,
+            "row"      : row
         })
 
 
@@ -324,20 +334,18 @@ class TextWindow(BaseTextInterface):
         self.window.refresh()
 
 
-    def UpdateLine(self, row, column, text, Color=2, Bold=False):
+    def _apply_line_update(self, row, column, text, Color=2, Bold=False):
         """
-        Updates the same line of text in the window.
+        Applies a line update directly to the window.
 
         Parameters:
-        - row, column: Coordinates for where to place the text.
-        - text: The text to display.
-        - Color: Color pair to use (default is 2).
-        - Bold: Whether to display the text in bold (default is False).
+        - row (int): The row to update.
+        - column (int): The column to start at.
+        - text (str): The text to display.
+        - Color (int): Color pair to use.
+        - Bold (bool): Whether to display the text in bold.
         """
         try:
-            # Truncate the text if it's longer than the display columns
-            text = text[:self.DisplayColumns - column]
-
             # Set the color and optionally bold
             if Bold:
                 self.window.attron(curses.color_pair(Color) | curses.A_BOLD)
@@ -357,6 +365,52 @@ class TextWindow(BaseTextInterface):
             self.window.refresh()
 
         except curses.error as e:
+            logging.error(f"Curses error in _apply_line_update: {e}")
+        except Exception as e:
+            logging.error(f"Error in _apply_line_update: {e}")
+
+
+
+    def UpdateLine(self, row, column, text, Color=2, Bold=False):
+        """
+        Enqueues a line update to the print queue for processing.
+
+        Parameters:
+        - row (int): The row number where the text will be displayed.
+        - column (int): The column number where the text will start.
+        - text (str): The text to display.
+        - Color (int): Color pair to use (default is 2).
+        - Bold (bool): Whether to display the text in bold (default is False).
+        """
+        try:
+            # Ensure the row and column are within bounds
+            if row < 0 or row >= self.DisplayRows:
+                raise ValueError(f"Row {row} is out of bounds. Valid range is 0 to {self.DisplayRows - 1}.")
+            if column < 0 or column >= self.DisplayColumns:
+                raise ValueError(f"Column {column} is out of bounds. Valid range is 0 to {self.DisplayColumns - 1}.")
+
+            # Truncate the text if it exceeds the available space
+            max_length = self.DisplayColumns - column
+            if len(text) > max_length:
+                logging.warning(f"Text '{text}' truncated to fit within column width.")
+            text = text[:max_length]
+
+            # Enqueue the update request
+            print_queue.put({
+                "window_name": self.name,
+                "message"    : text,
+                "Color"      : Color,
+                "row"        : row,
+                "column"     : column,
+                "Bold"       : Bold
+            })
+
+        except Exception as e:
+            logging.error(f"Error in UpdateLine: {e}")
+
+
+
+        except curses.error as e:
             # Handle any curses-specific errors
             logging.debug(f"ERROR: Curses error occurred in UpdateLine: {e}")
 
@@ -369,35 +423,42 @@ class TextWindow(BaseTextInterface):
 
 
 
+@staticmethod
+def ProcessQueue():
+    """
+    Processes the global print queue and updates the appropriate window.
+    """
+    while True:
+        try:
+            # Get the next message from the queue
+            item = print_queue.get()
+            if item is None:  # Exit loop if None is received
+                break
 
-    @staticmethod
-    def ProcessQueue():
-        """
-        Continuously process the global message queue and call ScrollPrint for the appropriate window.
-        """
-        while True:
-            try:
-                # Get the next message from the queue
-                item = message_queue.get()
-                if item is None:
-                    break  # Exit loop if None is received
+            # Extract details from the message
+            window_name = item.get("window_name")
+            message = item.get("message")
+            Color = item.get("Color", 2)
+            row = item.get("row", None)
+            column = item.get("column", 0)
+            Bold = item.get("Bold", False)
 
-                # Extract details
-                window_name = item["window_name"]
-                message = item["message"]
-                Color = item.get("Color", 2)
-                TimeStamp = item.get("TimeStamp", False)
-                BoldLine = item.get("BoldLine", True)
-
-                # Find the window and call ScrollPrint
-                window = TextWindow.windows.get(window_name)
-                if window:
-                    window.ScrollPrint(message, Color=Color, TimeStamp=TimeStamp, BoldLine=BoldLine)
+            # Find the target window
+            window = TextWindow.windows.get(window_name)
+            if window:
+                # Call _apply_line_update for specific row/column updates
+                if row > -1:
+                    window._apply_line_update(row, column, message, Color, Bold)
                 else:
-                    logging.debug(f"Window '{window_name}' not found for message: {message}")
+                    # Fallback to ScrollPrint for general messages
+                    window.ScrollPrint(message, Color=Color, BoldLine=Bold)
+            else:
+                logging.warning(f"Window '{window_name}' not found for message: {message}")
 
-            except Exception as e:
-                logging.debug(f"Error processing message queue: {e}")
+        except Exception as e:
+            logging.error(f"Error processing message queue: {e}")
+
+
 
 
 
@@ -477,6 +538,9 @@ class HeaderWindow(TextWindow):
         """
         super().__init__(name, title, rows, columns, y1, x1, ShowBorder, BorderColor, TitleColor)
         
+        # Ensure HeaderWindow instances are registered in the windows dictionary
+        TextWindow.windows[name] = self
+
         # Convert to dictionary if fixed_lines is a list
         if isinstance(fixed_lines, list):
             self.fixed_lines = dict(fixed_lines)  # Convert list of tuples to dict
@@ -487,8 +551,9 @@ class HeaderWindow(TextWindow):
 
         # Initialize current_lines to track the current state of each line
         self.current_lines = {}
-        
         self._initialize_fixed_lines()
+
+
 
     def _initialize_fixed_lines(self):
         """Sets the initial content for all fixed lines."""
@@ -690,9 +755,10 @@ def get_screen_dimensions(stdscr):
     height, width = stdscr.getmaxyx()
     return height, width
 
+
 curses.wrapper(lambda stdscr: print(get_screen_dimensions(stdscr)))
 
 
-# Start the queue processing thread automatically
-queue_processor_thread = threading.Thread(target=TextWindow.ProcessQueue, daemon=True)
-queue_processor_thread.start()
+#Put this in your python main area to start processing
+#queue_processor_thread = threading.Thread(target=textwindows.ProcessQueue, daemon=True)
+#queue_processor_thread.start()
