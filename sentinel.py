@@ -52,6 +52,7 @@ import netaddr
 import threading
 import argparse
 from colorama import Fore, Back, Style, init
+import pyfiglet
 
 from scapy.all import *
 from scapy.layers.l2 import Dot3, Dot1Q, Ether, ARP
@@ -1841,8 +1842,7 @@ def main(stdscr):
     global curses_enabled
 
     looping = True
-    
-    print("main processor started")
+       
 
     #--------------------------------------
     #-- Setup text windows 
@@ -2009,34 +2009,25 @@ if __name__ == "__main__":
 
       # Initialize colorama for Windows compatibility
       init()
-
-      # Foreground colors
-      #print(Fore.RED + "This is red text")
-      #print(Fore.GREEN + "This is green text")
-      #print(Fore.BLUE + "This is blue text")
-
-      # Background colors
-      #print(Back.YELLOW + "This has a yellow background")
-      #print(Back.CYAN + "This has a cyan background")
-
-      # Combined with style
-      #print(Style.BRIGHT + Fore.MAGENTA + "Bright magenta text")
-      #print(Style.DIM + Fore.WHITE + "Dim white text")
-
-      # Reset to default
-      #print(Style.RESET_ALL + "Back to normal")
-
-
       print(Fore.RED)
 
       os.system('clear') #clear the terminal (optional)
-      os.system("figlet 'SENTINEL PASSIVE SURVEILLANCE SYSTEM'")
 
-      print("###########################################################")
-      print("# SENTINEL RAW MODE                                       #")
-      print("###########################################################")
+      print(pyfiglet.figlet_format("SENTINEL PASSIVE SURVEILLANCE SYSTEM", font='pagga'))
+      print(pyfiglet.figlet_format("RAW DISPLAY MODE", font="pagga"))
       print(Fore.GREEN)
       print("")
+
+      # List all available fonts
+      #fonts = pyfiglet.FigletFont.getFonts()
+      #print("Available Fonts:")
+      #for font in fonts:
+      #    print(font)
+      #    print(pyfiglet.figlet_format(font, font=font))
+      #    time.sleep(0.1)
+
+
+
       main('RawMode')
 
 
