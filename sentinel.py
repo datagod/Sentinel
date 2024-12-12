@@ -5,7 +5,7 @@ Notes:
  - modify scrollprint to add a string to a window_queue (windowname, string)
  - a separate thread will read the window_queue and write the string to the correct window
  - store raw packets for further processing by A.I. to fingerprint devices that have modified their MAC repeatedly
-
+ - find out if friendly cache is working
 
 Sentinel Passive Surveillance System
 ====================================
@@ -789,12 +789,14 @@ def determine_device_type_with_packet(packet):
 
 
 
-# Function to search for a MAC address
+# Function to search for a MAC address in a list of friendly devices
 @profile_decorator
 def search_friendly_devices(mac, friendly_devices):
+
     for device in friendly_devices:
         if device["MAC"] == mac:
             return {"FriendlyName": device["FriendlyName"], "Type": device["Type"], "Brand": device["Brand"]}
+
     return None  # Return None if MAC is not found
 
 
@@ -1020,7 +1022,6 @@ def process_packet(packet):
       ProcessedPacket.packet_info    = packet.show(dump=True)
       ProcessedPacket.packet_details = get_packet_details_as_string(packet)
 
-    
       
 
       #There can be more than one source/destination depending on the type of packet
@@ -1082,9 +1083,7 @@ def process_packet(packet):
       ProcessedPacket.band    = current_channel_info['band']
       
       #DetailsWindow.UpdateLine(0,1,f"Band: {band} Channel: {str(channel).ljust(5)}")
-      
       #HeaderWindow.UpdateLine(1,1,f"Packets: {PacketCount}")
-
 
 
       # Step 1: Try to determine device type using source OUI if it's available
@@ -1098,6 +1097,10 @@ def process_packet(packet):
       # Step 3: As a final fallback, if packet type suggests it's a mobile device, mark it as 'Mobile'
       if ProcessedPacket.DeviceType  == 'UNKNOWN' and 'MOBILE' in PacketType.upper():
           ProcessedPacket.DeviceType  = 'Mobile'
+
+      #If we don't want to see routers/access points, exit at this point
+      if (show_routers == False) and ('ROUTER' in ProcessedPacket.DeviceType.upper() or 'ACCESS' in ProcessedPacket.DeviceType.upper()):
+        return
 
 
       #Get the signal strength
@@ -1120,37 +1123,33 @@ def process_packet(packet):
     # Create a unique key for the packet based on important fields
     ProcessedPacket.source_mac, ProcessedPacket.ssid, ProcessedPacket.source_vendor, ProcessedPacket.DeviceType, ProcessedPacket.signal = replace_none_with_unknown(ProcessedPacket.source_mac, ProcessedPacket.ssid, ProcessedPacket.source_vendor, ProcessedPacket.DeviceType, ProcessedPacket.signal)
     packet_key = (ProcessedPacket.source_mac, ProcessedPacket.ssid, ProcessedPacket.source_vendor, ProcessedPacket.DeviceType, ProcessedPacket.signal)
-     
 
-    # Check if the packet information is already in the cache
+    #Check for friendly device
+    result = search_friendly_devices(ProcessedPacket.source_mac,friendly_devices_dict)
+    if result:
+      ProcessedPacket.FriendlyName = result['FriendlyName']
+      ProcessedPacket.FriendlyType = result['Type']
+      ProcessedPacket.FriendlyBrand = result['Brand']
+
+      # Create a unique key for the friendly packet based on important fields
+      friendly_device_key = (ProcessedPacket.FriendlyName, ProcessedPacket.FriendlyType)
+      #add to cache
+      friendly_device_cache[friendly_device_key] = True
+      friendly_key_count = len(friendly_device_cache)
+
+
+
+    # To declutter the screen we don't display items that are in the cache
+    # the cache expires after X minutes
     if packet_key not in displayed_packets_cache:
       #add to cache
       displayed_packets_cache[packet_key] = True
       key_count = len(displayed_packets_cache)
 
-
-      #Check for friendly device
-      result = search_friendly_devices(ProcessedPacket.source_mac,friendly_devices_dict)
-      if result:
-        ProcessedPacket.FriendlyName = result['FriendlyName']
-        ProcessedPacket.FriendlyType = result['Type']
-        ProcessedPacket.FriendlyBrand = result['Brand']
-
-        # Create a unique key for the friendly packet based on important fields
-        friendly_device_key = (ProcessedPacket.FriendlyName, ProcessedPacket.FriendlyType)
-        #add to cache
-        friendly_device_cache[friendly_device_key] = True
-        friendly_key_count = len(friendly_device_cache)
-
-
-
-        #DetailsWindow.QueuePrint(f"{key_count} - {FriendlyName} - {FriendlyType} - {FriendlyBrand} - {ssid}")
-        if curses_enabled and show_friendly:
-            FormattedString = format_into_columns(DetailsWindow.columns, ProcessedPacket.FriendlyName,  ProcessedPacket.FriendlyType,   ProcessedPacket.FriendlyBrand,   ProcessedPacket.ssid, (f"{ProcessedPacket.band} {ProcessedPacket.channel} {ProcessedPacket.signal}dB"))
-            DetailsWindow.QueuePrint(FormattedString)
-
-        
-
+      #DetailsWindow.QueuePrint(f"{key_count} - {FriendlyName} - {FriendlyType} - {FriendlyBrand} - {ssid}")
+      if curses_enabled and show_friendly:
+          FormattedString = format_into_columns(DetailsWindow.columns, ProcessedPacket.FriendlyName,  ProcessedPacket.FriendlyType,   ProcessedPacket.FriendlyBrand,   ProcessedPacket.ssid, (f"{ProcessedPacket.band} {ProcessedPacket.channel} {ProcessedPacket.signal}dB"))
+          DetailsWindow.QueuePrint(FormattedString)
       else:
           #Format a string for the Detail Window display
           if curses_enabled:
@@ -1256,16 +1255,18 @@ def process_packet(packet):
         console_output = (
         
             f"{str(PacketCount)[:10]:<10} | "
-            f"{ProcessedPacket.FriendlyName[:10]:<10} | "
+            f"{ProcessedPacket.FriendlyName[:15]:<15} | "
             f"{ProcessedPacket.PacketType[:20]:<20} | "
-            f"Type: {ProcessedPacket.DeviceType[:20]:<20} | "
-            f"MAC: {ProcessedPacket.source_mac[:12]:<12} | "
-            f"Vendor: {ProcessedPacket.source_vendor[:15]:<15} | "
-            f"SSID: {ProcessedPacket.ssid or 'N/A'[:20]:<20} | "
+            f"{ProcessedPacket.DeviceType[:30]:<30} | "
+            f"{ProcessedPacket.source_mac[:20]:<20} | "
+            f"{ProcessedPacket.source_vendor[:25]:<25} | "
+            f"{ProcessedPacket.ssid or 'N/A'[:20]:<20} | "
             f"{BandSignal[:15]:<15} | "
-            f"Lat: {current_latitude or 'N/A'[:10]:<10} | "
-            f"Long: {current_longitude or 'N/A'[:10]:<10}"
+            f"{current_latitude or 'N/A'[:10]:<10} | "
+            f"{current_longitude or 'N/A'[:10]:<10}"
         )
+        
+        
         console_region.region_print_line(console_output)
     
         
@@ -2016,7 +2017,6 @@ def main(stdscr):
         # Refresh windows for initial setup
         HeaderWindow.DisplayTitle('Sentinel 1.0')
         HeaderWindow.refresh()
-
         
         PacketWindow.DisplayTitle('Packet Info')
         PacketWindow.refresh()
@@ -2045,6 +2045,8 @@ def main(stdscr):
     # Load the friendly devices dictionary
     friendly_devices_dict = load_friendly_devices_dict("FriendlyDevices.json")
     
+
+
 
     # Get the Wi-Fi interface in monitor mode
     interface = get_monitor_mode_interface()
@@ -2127,11 +2129,6 @@ def main(stdscr):
 # while still being runnable as a standalone program.
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Sentinel Program")
-    initialize_console_region(start_row=console_start_row,stop_row=console_stop_row)
-
-    console_region_title = "Packets   FriendlyName      PacketType             DeviceType         SourceMac        SourceVendor           SSID             BandSignal      Lat      Lon"
-    console_region.print_line(text=console_region_title,line=console_region.title_row)
-    
 
     # Add parameters
     parser.add_argument(
@@ -2148,29 +2145,38 @@ if __name__ == "__main__":
         help="--Friendly Y causes friendly devices to be included in the display (can be a bit noisy if sentinel is not mobile)"
     )
 
+    parser.add_argument(
+        "--Routers",
+        choices=["Y", "N"],
+        default="Y",
+        help="--Routers Y will include routers and access points in traffic processing)"
+    )
+
 
     # Parse the arguments
     args = parser.parse_args()
 
     # Convert the input to a boolean for easier handling
-    curses_enabled = args.Raw == "N"
+    curses_enabled = args.Raw      == "N"
     show_friendly  = args.Friendly == "Y"
+    show_routers   = args.Routers  == "Y"
 
     if curses_enabled:
       curses.wrapper(main)
     else:
      
+      #Console region
+      initialize_console_region(start_row=console_start_row,stop_row=console_stop_row)
+      console_region_title = "Packets      FriendlyName      PacketType            DeviceType         SourceMac        SourceVendor           SSID             BandSignal      Lat      Lon"
+      console_region.print_line(text=console_region_title,line=console_region.title_row)
 
       # Initialize colorama for Windows compatibility
       init()
       print(Fore.RED)
       os.system('clear') #clear the terminal (optional)
       print(pyfiglet.figlet_format("      SENTINEL PASSIVE SURVEILLANCE SYSTEM",font='pagga',justify='left',width=console_width))
-      print(pyfiglet.figlet_format("                     RAW OUTPUT MODE                ",font='pagga',justify='left',width=console_width))
+      print(pyfiglet.figlet_format("                       RAW OUTPUT MODE                        ",font='pagga',justify='left',width=console_width))
       print(Fore.GREEN)
-
-      
-      
 
 
       fig = pyfiglet.Figlet(
