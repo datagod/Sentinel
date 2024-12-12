@@ -53,6 +53,8 @@ import threading
 import argparse
 from colorama import Fore, Back, Style, init
 import pyfiglet
+import shutil
+
 
 from scapy.all import *
 from scapy.layers.l2 import Dot3, Dot1Q, Ether, ARP
@@ -73,8 +75,10 @@ gps_stop_event = threading.Event()
 profile_lock   = threading.Lock()
 profiling_data = {}                # Dictionary to store function run times
 
-
+#Parameters
 curses_enabled          = True
+show_friendly           = True
+
 current_channel_info    = {"channel": None, "band": None, "frequency": None}
 displayed_packets_cache = TTLCache(maxsize=10000, ttl=900)   #entry expires after 15 minutes
 friendly_device_cache   = TTLCache(maxsize=10000, ttl=3600)  #entry expires after 1 hour
@@ -98,9 +102,7 @@ hop_interval      = 1  #Interval in seconds between channel hops
 hop_modifier      = 5    #modifies the hop interval so we don't wait as long on 5Ghz channels 
 main_interval     = 30   #Interval in seconds for the main loop
 gps_interval      = 1    #Interval in seconds for the GPS check
-HeaderUpdateSpeed = 1
-
-
+HeaderUpdateSpeed = 25
 
 
 
@@ -113,6 +115,13 @@ RawWindow     = None
 HorizontalWindowCount = 4
 HeaderHeight  = 15
 HeaderWidth   = 80
+
+#Console variables
+console_width  = shutil.get_terminal_size().columns
+console_height = shutil.get_terminal_size().lines
+console_region = None
+console_start_row  = 30
+console_stop_row   = console_height
 
 
 
@@ -130,6 +139,140 @@ HeaderWidth   = 80
 # |_|   |_| \_\\___/ \____|_____|____/____/___|_| \_|\____|        --
 #                                                                  --
 #--------------------------------------------------------------------
+
+
+class PacketInformation():
+    def __init__(self):
+        self.source_mac     = 'UNKNOWN'
+        self.dest_mac       = 'UNKNOWN'
+        self.source_vendor  = ''
+        self.dest_vendor    = ''
+        self.source_oui     = ''
+        self.ssid           = ''
+        self.DeviceType     = ''
+        self.PacketType     = ''
+        self.signal         = None
+        self.channel        = 0
+        self.band           = 0
+        self.timestamp      = datetime.now()
+        self.FriendlyName   = None
+        self.FriendlyType   = None
+        self.FriendlyBrand  = None
+        self.latitude       = None
+        self.longitude      = None
+        self.packet_layers  = None
+        self.packet_info    = None
+        self.packet_details = None
+        self.mac_details    = None
+        self.Packet         = None
+        self.PacketType     = None
+        
+       
+
+
+  
+
+def initialize_console_region(start_row, stop_row):
+    """
+    Initialize the global console region with specified start and end rows.
+    
+    Parameters:
+    start_row (int): The starting row of the region.
+    stop_row (int): The ending row of the region.
+    """
+    print("Setting up the console region")
+    global console_region
+    console_region = ConsoleRegion(start_row, stop_row)
+
+
+
+
+
+
+class ConsoleRegion:
+    def __init__(self, start_row, stop_row):
+        """
+        Initialize a console region for printing.
+        
+        Parameters:
+        start_row (int): The starting row of the region.
+        stop_row (int): The ending row of the region.
+        """
+        self.title_row   = start_row
+        self.start_row   = start_row+1
+        self.stop_row    = stop_row
+        self.current_row = start_row
+        
+
+
+    def region_print_line(self, text, align="left"):
+        """
+        Print a string to the next line in the region, resetting the previous line.
+        
+        Parameters:
+        text (str): The text to print.
+        align (str): Text alignment ('left', 'center', 'right').
+        """
+
+        # Adjust text alignment
+        if align == "center":
+            text = text.center(console_width)
+        elif align == "right":
+            text = text.rjust(console_width)
+        else:
+            text = text.ljust(console_width)
+
+        # Truncate text if it exceeds console width
+        text = text[:console_width]
+
+        # Reset the previous line if it's within bounds
+        if hasattr(self, "previous_row") and self.previous_row:
+            print(f"\033[{self.previous_row};1H{self.previous_text}", end="")
+            print("\033[K", end="")  # Clear the rest of the line
+
+        # Print the current line
+        print(f"\033[{self.current_row};1H{text}", end="")
+        print("\033[K", end="")  # Clear any leftover content on the line
+
+        # Store the current line's information for resetting next time
+        self.previous_row = self.current_row
+        self.previous_text = text
+
+        # Increment the current row and wrap around if it exceeds the stop row
+        self.current_row += 1
+        if self.current_row > self.stop_row:
+            self.current_row = self.start_row
+
+    def print_line(self, text, align="left", line=' '):
+        """
+        Print a string to the specified line in the region.
+        
+        Parameters:
+        text (str): The text to print.
+        align (str): Text alignment ('left', 'center', 'right').
+        line(str):  the string to print
+        """
+
+        # Truncate text if it exceeds console width
+        text = text[:console_width]
+
+        # Reset the previous line if it's within bounds
+        if hasattr(self, "previous_row") and self.previous_row:
+            print(f"\033[{self.previous_row};1H{self.previous_text}", end="")
+            print("\033[K", end="")  # Clear the rest of the line
+
+        # Print the current line
+        print(f"\033[{self.current_row};1H{text}", end="")
+        print("\033[K", end="")  # Clear any leftover content on the line
+
+        # Store the current line's information for resetting next time
+        self.previous_row = self.current_row
+        self.previous_text = text
+
+        # Increment the current row and wrap around if it exceeds the stop row
+        self.current_row += 1
+        if self.current_row > self.stop_row:
+            self.current_row = self.start_row
 
 
 
@@ -159,8 +302,74 @@ def ErrorHandler(ErrorMessage='',TraceMessage='',AdditionalInfo=''):
 
 
 
+def identify_packet_type(packet):
+    """
+    Identifies the type of packet and returns a string indicating the protocol.
+
+    :param packet: Scapy packet object to be analyzed.
+    :return: A string representing the identified packet type.
+    """
+
+    #HeaderWindow.UpdateLine(1,40,f"Function: {inspect.currentframe().f_code.co_name}        ")
+
+    if packet.haslayer(DHCP):
+        return "DHCP Packet"
+    elif packet.haslayer(ARP):
+        return "ARP Packet"
+    elif packet.haslayer(Dot11):
+        if packet.haslayer(Dot11Beacon):
+            return "802.11 Beacon Frame (Router/AP)"
+        elif packet.haslayer(Dot11ProbeReq):
+            return "802.11 Probe Request (Mobile Device)"
+        elif packet.haslayer(Dot11ProbeResp):
+            return "802.11 Probe Response"
+        elif packet.haslayer(Dot11AssoReq):
+            return "802.11 Association Request"
+        elif packet.haslayer(Dot11AssoResp):
+            return "802.11 Association Response"
+        else:
+            return "802.11 Packet"
+    elif packet.haslayer(IP):
+        if packet.haslayer(TCP):
+            return "TCP Packet"
+        elif packet.haslayer(UDP):
+            return "UDP Packet"
+        elif packet.haslayer(ICMP):
+            return "ICMP Packet"
+        else:
+            return "IP Packet"
+    
+
+    elif packet.haslayer(Dot3):
+        return "802.3 Ethernet Packet"
+    elif packet.haslayer(Dot1Q):
+        return "802.1Q VLAN Tagged Frame"
+    else:
+        return "UNKNOWN Packet Type"
 
 
+
+
+
+
+def PrintConsoleHeader(header_lines, start_row=0):
+    """
+    Prints the lines from a dictionary at a specified starting row in the terminal.
+    
+    Parameters:
+    header_lines: Dictionary with line numbers as keys and strings as values.
+    start_row: The row number to begin printing from.
+    """
+    # Sort the dictionary by keys to ensure the lines are in order
+    sorted_lines = [header_lines[key] for key in sorted(header_lines)]
+    
+    # Start printing at the specified row
+    for i, line in enumerate(sorted_lines):
+        # Move cursor to the appropriate row and column 1
+        print(f"\033[{start_row + i};1H{line}", end="")
+    
+    # Clear any remaining text below the printed lines (optional)
+    #print("\033[J", end="")
 
 
 
@@ -690,7 +899,6 @@ def process_PacketQueue():
             process_packet(packet)
 
             
-
             # Signal that processing of this item is done
             PacketQueue.task_done()
 
@@ -766,8 +974,11 @@ def process_packet(packet):
     global DBQueue
     global PacketsSavedToDBCount
     global gps_lock
+    global console_region
     
 
+    #we now use an object to store the information
+    ProcessedPacket = PacketInformation()
     
     count         = 0
     PacketCount   = PacketCount + 1
@@ -779,16 +990,7 @@ def process_packet(packet):
     KeyTime       = datetime.now().replace(second=0, microsecond=0)
     
 
-    DeviceType    = ''
-    source_mac    = 'UNKNOWN'
-    dest_mac      = 'UNKNOWN'
-    source_oui    = ''
-    ssid          = ''
-    FriendlyName  = None
-    FriendlyType  = None
-    FriendlyBrand = None
-    mac_details   = None
-    signal        = None
+    
     friendly_device_key = None
 
   
@@ -811,19 +1013,19 @@ def process_packet(packet):
     try:
       
       #Get all the information about the packet before displaying anything
-      PacketType     = identify_packet_type(packet)
-      packet_layers  = identify_packet_layers(packet)
+      ProcessedPacket.PacketType     = identify_packet_type(packet)
+      ProcessedPacket.packet_layers  = identify_packet_layers(packet)
         
       #Convert packet to a string for displaying
-      packet_info    = packet.show(dump=True)
-      packet_details = get_packet_details_as_string(packet)
+      ProcessedPacket.packet_info    = packet.show(dump=True)
+      ProcessedPacket.packet_details = get_packet_details_as_string(packet)
 
     
       
 
       #There can be more than one source/destination depending on the type of packet
       #We will focus on WIFI packets for this project
-      mac_details   = extract_oui_and_vendor_information(packet)
+      ProcessedPacket.mac_details   = extract_oui_and_vendor_information(packet)
 
       #RawWindow.QueuePrint(f"==========================================")
       #RawWindow.QueuePrint(f"mac_details: {mac_details}")
@@ -831,63 +1033,53 @@ def process_packet(packet):
       # Iterate through each key-value pair in the mac_info dictionary
       #InfoWindow.QueuePrint("-----MAC DETAILS-------------------------------")
       
-      
-      
-      
-      
-      # Initialize variables to track MAC addresses and vendor details
-      source_mac    = None
-      source_vendor = None
-      dest_mac      = None
-      dest_vendor   = None
 
 
-
-      if mac_details != None:
+      if ProcessedPacket.mac_details != None:
         # Iterate through each key-value pair in the mac_details dictionary
-        for mac_type, details in mac_details.items():
+        for mac_type, details in ProcessedPacket.mac_details.items():
             # Check if the current type indicates a source MAC
             #InfoWindow.QueuePrint(f"mac_type: {mac_type}")
 
             if 'SOURCE' in mac_type.upper():
                 # Extract the MAC address and normalize it
-                source_mac = normalize_mac(details.get('MAC', 'UNKNOWN'))
+                ProcessedPacket.source_mac = normalize_mac(details.get('MAC', 'UNKNOWN'))
                     
                 # Check if the source MAC is valid
-                if source_mac != 'UNKNOWN' and source_mac is not None:
+                if ProcessedPacket.source_mac != 'UNKNOWN' and ProcessedPacket.source_mac is not None:
                     # Log the found source MAC and stop processing
                     #InfoWindow.QueuePrint(f"Found valid source_mac: {source_mac}")
-                    source_vendor = details.get('Vendor', 'UNKNOWN')
+                    ProcessedPacket.source_vendor = details.get('Vendor', 'UNKNOWN')
                     #InfoWindow.QueuePrint(f"Vendor: {source_vendor}")
                     break  # Exit the loop once the first valid source MAC is found
 
             # Optionally handle destination MACs or other details
             if 'DEST' in mac_type.upper():
                 dest_mac = normalize_mac(details.get('MAC', 'UNKNOWN'))
-                dest_vendor = details.get('Vendor', 'UNKNOWN')
+                ProcessedPacket.dest_vendor = details.get('Vendor', 'UNKNOWN')
 
 
-      if source_mac != 'UNKNOWN' and source_mac != None:
-          source_mac = resolve_mac(source_mac, get_source_mac, packet)
+      if ProcessedPacket.source_mac != 'UNKNOWN' and ProcessedPacket.source_mac != None:
+          ProcessedPacket.source_mac = resolve_mac(ProcessedPacket.source_mac, get_source_mac, packet)
       
-      if dest_mac != 'UNKNOWN' and source_mac != None:
-        dest_mac   = resolve_mac(dest_mac, get_destination_mac, packet)
+      if ProcessedPacket.dest_mac != 'UNKNOWN' and ProcessedPacket.dest_mac != None:
+        ProcessedPacket.dest_mac   = resolve_mac(ProcessedPacket.dest_mac, get_destination_mac, packet)
 
-      if source_mac == 'UNKNOWN' or source_mac == None:
-        source_mac == 'FF:FF:FF:FF:FF:FF'
+      if ProcessedPacket.source_mac == 'UNKNOWN' or ProcessedPacket.source_mac == None:
+        ProcessedPacket.source_mac == 'FF:FF:FF:FF:FF:FF'
       
-      if dest_mac == 'UNKNOWN' or dest_mac == None:
-        dest_mac == 'FF:FF:FF:FF:FF:FF'
+      if ProcessedPacket.dest_mac == 'UNKNOWN' or ProcessedPacket.dest_mac == None:
+        ProcessedPacket.dest_mac == 'FF:FF:FF:FF:FF:FF'
 
 
 
       # Extract OUI if source_mac is known
-      if source_mac != 'UNKNOWN' and source_mac != None:
-          source_oui = source_mac[:8]
+      if ProcessedPacket.source_mac != 'UNKNOWN' and ProcessedPacket.source_mac != None:
+          ProcessedPacket.source_oui = ProcessedPacket.source_mac[:8]
 
-      ssid    = extract_ssid(packet)
-      channel = current_channel_info['channel']
-      band    = current_channel_info['band']
+      ProcessedPacket.ssid    = extract_ssid(packet)
+      ProcessedPacket.channel = current_channel_info['channel']
+      ProcessedPacket.band    = current_channel_info['band']
       
       #DetailsWindow.UpdateLine(0,1,f"Band: {band} Channel: {str(channel).ljust(5)}")
       
@@ -896,20 +1088,20 @@ def process_packet(packet):
 
 
       # Step 1: Try to determine device type using source OUI if it's available
-      if source_oui is not None:
-          DeviceType = determine_device_type(source_oui)
+      if ProcessedPacket.source_oui is not None:
+          ProcessedPacket.DeviceType  = determine_device_type(ProcessedPacket.source_oui)
 
       # Step 2: If device type is still UNKNOWN, try another method using the packet
-      if DeviceType == 'UNKNOWN':
-          DeviceType = determine_device_type_with_packet(packet)
+      if ProcessedPacket.DeviceType  == 'UNKNOWN':
+          ProcessedPacket.DeviceType  = determine_device_type_with_packet(packet)
 
       # Step 3: As a final fallback, if packet type suggests it's a mobile device, mark it as 'Mobile'
-      if DeviceType == 'UNKNOWN' and 'MOBILE' in PacketType.upper():
-          DeviceType = 'Mobile'
+      if ProcessedPacket.DeviceType  == 'UNKNOWN' and 'MOBILE' in PacketType.upper():
+          ProcessedPacket.DeviceType  = 'Mobile'
 
 
       #Get the signal strength
-      signal = extract_signal_strength(packet)
+      ProcessedPacket.signal = extract_signal_strength(packet)
        
 
     except Exception as ErrorMessage:
@@ -926,8 +1118,8 @@ def process_packet(packet):
           
 
     # Create a unique key for the packet based on important fields
-    source_mac, ssid, source_vendor, DeviceType, signal = replace_none_with_unknown(source_mac, ssid, source_vendor, DeviceType, signal)
-    packet_key = (source_mac, ssid, source_vendor, DeviceType, signal)
+    ProcessedPacket.source_mac, ProcessedPacket.ssid, ProcessedPacket.source_vendor, ProcessedPacket.DeviceType, ProcessedPacket.signal = replace_none_with_unknown(ProcessedPacket.source_mac, ProcessedPacket.ssid, ProcessedPacket.source_vendor, ProcessedPacket.DeviceType, ProcessedPacket.signal)
+    packet_key = (ProcessedPacket.source_mac, ProcessedPacket.ssid, ProcessedPacket.source_vendor, ProcessedPacket.DeviceType, ProcessedPacket.signal)
      
 
     # Check if the packet information is already in the cache
@@ -938,23 +1130,24 @@ def process_packet(packet):
 
 
       #Check for friendly device
-      result = search_friendly_devices(source_mac,friendly_devices_dict)
+      result = search_friendly_devices(ProcessedPacket.source_mac,friendly_devices_dict)
       if result:
-        FriendlyName = result['FriendlyName']
-        FriendlyType = result['Type']
-        FriendlyBrand = result['Brand']
+        ProcessedPacket.FriendlyName = result['FriendlyName']
+        ProcessedPacket.FriendlyType = result['Type']
+        ProcessedPacket.FriendlyBrand = result['Brand']
 
         # Create a unique key for the friendly packet based on important fields
-        friendly_device_key = (FriendlyName, FriendlyType)
+        friendly_device_key = (ProcessedPacket.FriendlyName, ProcessedPacket.FriendlyType)
         #add to cache
         friendly_device_cache[friendly_device_key] = True
         friendly_key_count = len(friendly_device_cache)
 
 
+
         #DetailsWindow.QueuePrint(f"{key_count} - {FriendlyName} - {FriendlyType} - {FriendlyBrand} - {ssid}")
-        if curses_enabled:
-          FormattedString = format_into_columns(DetailsWindow.columns, FriendlyName,  FriendlyType,   FriendlyBrand,   ssid, (f"{band} {channel} {signal}dB"))
-          DetailsWindow.QueuePrint(FormattedString)
+        if curses_enabled and show_friendly:
+            FormattedString = format_into_columns(DetailsWindow.columns, ProcessedPacket.FriendlyName,  ProcessedPacket.FriendlyType,   ProcessedPacket.FriendlyBrand,   ProcessedPacket.ssid, (f"{ProcessedPacket.band} {ProcessedPacket.channel} {ProcessedPacket.signal}dB"))
+            DetailsWindow.QueuePrint(FormattedString)
 
         
 
@@ -963,32 +1156,33 @@ def process_packet(packet):
           if curses_enabled:
             FormattedString = format_into_columns(
                 DetailsWindow.columns, 
-                DeviceType, 
-                (source_mac if (source_mac != 'UNKNOWN' and source_mac is not None) else source_oui) , 
-                f"{source_vendor} {source_oui}",
-                ssid, 
-                (f"{band} {channel} {signal}dB")
+                ProcessedPacket.DeviceType, 
+                (ProcessedPacket.source_mac if (ProcessedPacket.source_mac != 'UNKNOWN' and ProcessedPacket.source_mac is not None) else ProcessedPacket.source_oui) , 
+                f"{ProcessedPacket.source_vendor} {ProcessedPacket.source_oui}",
+                ProcessedPacket.ssid, 
+                (f"{ProcessedPacket.band} {ProcessedPacket.channel} {ProcessedPacket.signal}dB")
                 )
             PacketWindow.QueuePrint('INTRUDER DETAILS',Color=1)
             DetailsWindow.QueuePrint(FormattedString,Color=3)
 
 
       if curses_enabled:
-        PacketWindow.QueuePrint(f'CaptureDate:   {timestamp}')
-        if FriendlyName is not None:
-            PacketWindow.QueuePrint(f'FriendlyName:  {FriendlyName}')    
-            PacketWindow.QueuePrint(f'FriendlyType:  {FriendlyType}')    
-        PacketWindow.QueuePrint(f'PacketType:    {PacketType}')
-        PacketWindow.QueuePrint(f'DeviceType:    {DeviceType}')
-        PacketWindow.QueuePrint(f'Source MAC:    {source_mac}')
-        PacketWindow.QueuePrint(f'Source Vendor: {source_vendor}')
-        PacketWindow.QueuePrint(f'Dest MAC:      {dest_mac}')
-        PacketWindow.QueuePrint(f'Dest Vendor:   {dest_vendor}')
-        PacketWindow.QueuePrint(f'SSID:          {ssid}')
-        PacketWindow.QueuePrint(f'Band:          {band}')
-        PacketWindow.QueuePrint(f'channel:       {channel}')
-        PacketWindow.QueuePrint(f'signal:        {signal} dB')
-        PacketWindow.QueuePrint('---------------------------------------------------')
+
+        if (show_friendly == True)  or (FriendlyName == None ):
+            PacketWindow.QueuePrint(f'CaptureDate:   {timestamp}')
+            PacketWindow.QueuePrint(f'FriendlyName:  {ProcessedPacket.FriendlyName}')    
+            PacketWindow.QueuePrint(f'FriendlyType:  {ProcessedPacket.FriendlyType}')    
+            PacketWindow.QueuePrint(f'PacketType:    {ProcessedPacket.PacketType}')
+            PacketWindow.QueuePrint(f'DeviceType:    {ProcessedPacket.DeviceType}')
+            PacketWindow.QueuePrint(f'Source MAC:    {ProcessedPacket.source_mac}')
+            PacketWindow.QueuePrint(f'Source Vendor: {ProcessedPacket.source_vendor}')
+            PacketWindow.QueuePrint(f'Dest MAC:      {ProcessedPacket.dest_mac}')
+            PacketWindow.QueuePrint(f'Dest Vendor:   {ProcessedPacket.dest_vendor}')
+            PacketWindow.QueuePrint(f'SSID:          {ProcessedPacket.ssid}')
+            PacketWindow.QueuePrint(f'Band:          {ProcessedPacket.band}')
+            PacketWindow.QueuePrint(f'channel:       {ProcessedPacket.channel}')
+            PacketWindow.QueuePrint(f'signal:        {ProcessedPacket.signal} dB')
+            PacketWindow.QueuePrint('---------------------------------------------------')
 
     
       #--------------------------------------
@@ -996,21 +1190,21 @@ def process_packet(packet):
       #--------------------------------------
       # For now we save Intruder details to the database
       DBPacket = {
-        'CaptureDate' : timestamp,
-        'FriendlyName': FriendlyName,
-        'FriendlyType': FriendlyType,
-        'PacketType'  : PacketType,
-        'DeviceType'  : DeviceType,
-        'SourceMAC'   : source_mac,
-        'SourceVendor': source_vendor,
-        'DestMAC'     : dest_mac,
-        'DestVendor'  : dest_vendor,
-        'SSID'        : ssid,
-        'Band'        : band,
-        'Channel'     : channel,
+        'CaptureDate' : ProcessedPacket.timestamp,
+        'FriendlyName': ProcessedPacket.FriendlyName,
+        'FriendlyType': ProcessedPacket.FriendlyType,
+        'PacketType'  : ProcessedPacket.PacketType,
+        'DeviceType'  : ProcessedPacket.DeviceType,
+        'SourceMAC'   : ProcessedPacket.source_mac,
+        'SourceVendor': ProcessedPacket.source_vendor,
+        'DestMAC'     : ProcessedPacket.dest_mac,
+        'DestVendor'  : ProcessedPacket.dest_vendor,
+        'SSID'        : ProcessedPacket.ssid,
+        'Band'        : ProcessedPacket.band,
+        'Channel'     : ProcessedPacket.channel,
         'Latitude'    : current_latitude,
         'Longitude'   : current_longitude,
-        'Signal'      : signal
+        'Signal'      : ProcessedPacket.signal
         }
     
       DBQueue.put(DBPacket)
@@ -1026,73 +1220,56 @@ def process_packet(packet):
     if PacketCount % HeaderUpdateSpeed == 0:
       packetqueue_size = PacketQueue.qsize()
       dbqueue_size     = DBQueue.qsize()
-    
+   
       HeaderLines = {
-        1: f"Packets Processed:   {PacketCount}             ",
-        2: f"Band:                {band}                    ",
-        3: f"Channel:             {str(channel).ljust(5)}   ",
-        4: f"Packet Queue Size:   {packetqueue_size}        ",
-        5: f"DB Queue Size:       {dbqueue_size}            ",
-        6: f"Packets Saved to DB: {PacketsSavedToDBCount}   ",
-        7: f"Friendly Devices:    {friendly_key_count}      ",
-        8: f"Total Devices:       {key_count}               ",
-        9: f"Latitude:            {current_latitude}        ",
-       10: f"Longitude:           {current_longitude}       ",
+          1: f"Packets Processed:   {PacketCount}             ",
+          2: f"Band:                {ProcessedPacket.band}                    ",
+          3: f"Channel:             {str(ProcessedPacket.channel).ljust(5)}   ",
+          4: f"Packet Queue Size:   {packetqueue_size}        ",
+          5: f"DB Queue Size:       {dbqueue_size}            ",
+          6: f"Packets Saved to DB: {PacketsSavedToDBCount}   ",
+          7: f"Friendly Devices:    {friendly_key_count}      ",
+          8: f"Total Devices:       {key_count}               ",
+          9: f"Latitude:            {current_latitude}        ",
+         10: f"Longitude:           {current_longitude}       ",
+         10: f"Time:                {timestamp.replace(microsecond=0)}             ",
       }
   
       if curses_enabled:
         HeaderWindow.set_fixed_lines(HeaderLines,Color=2)
       else:
+        if (show_friendly == True)  or (ProcessedPacket.FriendlyName == None ):
+          PrintConsoleHeader(HeaderLines,15)
+
+    
+    #print a row of activity to the console print region
+    if (curses_enabled == False) and (show_friendly == True or (show_friendly == False and ProcessedPacket.FriendlyName == None)):
         # Create a dense single-line string for console output
+        if ProcessedPacket.FriendlyName == None:
+            ProcessedPacket.FriendlyName = 'None'
+        if band == None:
+            band = '??'
+        
+        BandSignal = f"{ProcessedPacket.band} {ProcessedPacket.channel} {ProcessedPacket.signal}dB | "
+
+        
         console_output = (
-            f"{PacketCount} | "
-            f"{PacketType} | "
-            f"Type: {DeviceType} | "
-            f"MAC: {source_mac} | "
-            f"Vendor: {source_vendor} | "
-            f"SSID: {ssid or 'N/A'} | "
-            f"{band} {channel} {signal}dB | "
-            f"Lat: {current_latitude or 'N/A'} | "
-            f"Long: {current_longitude or 'N/A'}"
+        
+            f"{str(PacketCount)[:10]:<10} | "
+            f"{ProcessedPacket.FriendlyName[:10]:<10} | "
+            f"{ProcessedPacket.PacketType[:20]:<20} | "
+            f"Type: {ProcessedPacket.DeviceType[:20]:<20} | "
+            f"MAC: {ProcessedPacket.source_mac[:12]:<12} | "
+            f"Vendor: {ProcessedPacket.source_vendor[:15]:<15} | "
+            f"SSID: {ProcessedPacket.ssid or 'N/A'[:20]:<20} | "
+            f"{BandSignal[:15]:<15} | "
+            f"Lat: {current_latitude or 'N/A'[:10]:<10} | "
+            f"Long: {current_longitude or 'N/A'[:10]:<10}"
         )
-     
-        # Print to the console
-        print(console_output)
+        console_region.region_print_line(console_output)
+    
         
       
-    '''
-    if not curses_enabled:
-        # Create a formatted string for console output
-        console_output = (
-            f"Packet Count:       {PacketCount}\n"
-            f"Capture Date:       {timestamp}\n"
-            f"Friendly Name:      {FriendlyName or 'N/A'}\n"
-            f"Friendly Type:      {FriendlyType or 'N/A'}\n"
-            f"Packet Type:        {PacketType}\n"
-            f"Device Type:        {DeviceType}\n"
-            f"Source MAC:         {source_mac}\n"
-            f"Source Vendor:      {source_vendor}\n"
-            f"Destination MAC:    {dest_mac}\n"
-            f"Destination Vendor: {dest_vendor}\n"
-            f"SSID:               {ssid or 'N/A'}\n"
-            f"Band:               {band}\n"
-            f"Channel:            {channel}\n"
-            f"Signal Strength:    {signal} dB\n"
-            f"Latitude:           {current_latitude or 'N/A'}\n"
-            f"Longitude:          {current_longitude or 'N/A'}\n"
-        )
-
-        # Print to the console
-        print(console_output)
-    '''
-
-      # Print out Function timings
-      #if random.randint(1,50) == 1:
-      #  get_profile_summary(3)
-
-    
-
-    
 
 
 
@@ -1555,57 +1732,6 @@ def identify_packet_layers(packet):
 
    
 
-@profile_decorator
-def identify_packet_type(packet):
-    """
-    Identifies the type of packet and returns a string indicating the protocol.
-
-    :param packet: Scapy packet object to be analyzed.
-    :return: A string representing the identified packet type.
-    """
-
-    #HeaderWindow.UpdateLine(1,40,f"Function: {inspect.currentframe().f_code.co_name}        ")
-
-    if packet.haslayer(DHCP):
-        return "DHCP Packet"
-    elif packet.haslayer(ARP):
-        return "ARP Packet"
-    elif packet.haslayer(Dot11):
-        if packet.haslayer(Dot11Beacon):
-            return "802.11 Beacon Frame (Router/AP)"
-        elif packet.haslayer(Dot11ProbeReq):
-            return "802.11 Probe Request (Mobile Device)"
-        elif packet.haslayer(Dot11ProbeResp):
-            return "802.11 Probe Response"
-        elif packet.haslayer(Dot11AssoReq):
-            return "802.11 Association Request"
-        elif packet.haslayer(Dot11AssoResp):
-            return "802.11 Association Response"
-        else:
-            return "802.11 Packet"
-    elif packet.haslayer(IP):
-        if packet.haslayer(TCP):
-            return "TCP Packet"
-        elif packet.haslayer(UDP):
-            return "UDP Packet"
-        elif packet.haslayer(ICMP):
-            return "ICMP Packet"
-        else:
-            return "IP Packet"
-    
-
-    elif packet.haslayer(Dot3):
-        return "802.3 Ethernet Packet"
-    elif packet.haslayer(Dot1Q):
-        return "802.1Q VLAN Tagged Frame"
-    else:
-        return "UNKNOWN Packet Type"
-
-# Example usage:
-#packet = sniff(count=1)[0]  # Sniff one packet for demonstration purposes
-#print(identify_packet_type(packet))
-
-
 
 
 
@@ -1663,29 +1789,34 @@ def print_oui_stats(oui_dict,InfoWindow):
 
     if curses_enabled:
         InfoWindow.QueuePrint("=== OUI Dictionary Statistics ===")
-        InfoWindow.QueuePrint(f"Total Number of OUI Entries: {total_entries}")
+        InfoWindow.QueuePrint(f"Total Number of OUI Entries:    {total_entries}")
         for oui, (short_desc, long_desc) in oui_dict.items():
             vendor_counter[short_desc] += 1
         InfoWindow.QueuePrint(f"Total Number of Unique Vendors: {total_unique_vendors}")
-        InfoWindow.QueuePrint(f"Vendors with Multiple OUIs: {len(vendors_with_multiple_ouis)}")
+        InfoWindow.QueuePrint(f"Vendors with Multiple OUIs:     {len(vendors_with_multiple_ouis)}")
 
         # Print top vendors with the most OUI entries
         InfoWindow.QueuePrint("Top 25 Vendors with the Most OUI Entries:")
         for vendor, count in vendor_counter.most_common(25):
-            InfoWindow.QueuePrint(f"{vendor}: {count} entries")
+            InfoWindow.QueuePrint(f"Vendor:  {vendor}")
+            InfoWindow.QueuePrint(f"Entries: {count}")
 
     else:
-        print("=== OUI Dictionary Statistics ===")
-        print(f"Total Number of OUI Entries: {total_entries}")
+        print(Fore.YELLOW)
+        print(pyfiglet.figlet_format("       OUI Dictionary       ", font='pagga',width=console_width))
+        #print("=== OUI Dictionary Statistics ===")
+        print(f"Total Number of OUI Entries:    {total_entries}")
         for oui, (short_desc, long_desc) in oui_dict.items():
             vendor_counter[short_desc] += 1
         print(f"Total Number of Unique Vendors: {total_unique_vendors}")
-        print(f"Vendors with Multiple OUIs: {len(vendors_with_multiple_ouis)}")
+        print(f"Vendors with Multiple OUIs:     {len(vendors_with_multiple_ouis)}")
 
         # Print top vendors with the most OUI entries
-        print("Top 25 Vendors with the Most OUI Entries:")
-        for vendor, count in vendor_counter.most_common(25):
-            print(f"{vendor}: {count} entries")
+        print("Top 10 Vendors with the Most OUI Entries:")
+        for vendor, count in vendor_counter.most_common(10):
+            print(f"Vendor:  {vendor}")
+            print(f"Entries: {count}")
+        print(pyfiglet.figlet_format("                             ", font='pagga',width=console_width))
       
 
 
@@ -1840,6 +1971,7 @@ def main(stdscr):
     global current_longitude
     global gps_stop_event
     global curses_enabled
+    global console_region
 
     looping = True
        
@@ -1892,7 +2024,7 @@ def main(stdscr):
         InfoWindow.DisplayTitle('Information')
         InfoWindow.refresh()
         
-        FormattedString = format_into_columns(DetailsWindow.columns, 'FriendlyName','FriendlyType', 'FriendlyBrand', 'SSID','Band/Channel/Signal')
+        FormattedString = format_into_columns(DetailsWindow.columns, 'DeviceName','ProcessedPacket.DeviceType', 'FriendlyBrand', 'SSID','Band/Channel/Signal')
         DetailsWindow.DisplayTitle(FormattedString,x=1)
         DetailsWindow.refresh()
 
@@ -1908,7 +2040,7 @@ def main(stdscr):
 
     # Load the OUI dictionary
     oui_dict = load_oui_dict_from_json("oui_dict.json")
-    print_oui_stats(oui_dict, InfoWindow)
+    #print_oui_stats(oui_dict, InfoWindow)
 
     # Load the friendly devices dictionary
     friendly_devices_dict = load_friendly_devices_dict("FriendlyDevices.json")
@@ -1917,9 +2049,12 @@ def main(stdscr):
     # Get the Wi-Fi interface in monitor mode
     interface = get_monitor_mode_interface()
     if interface is None:
-        InfoWindow.QueuePrint("ERROR: No interface found in monitor mode. Exiting...")
+        if curses_enabled:
+          InfoWindow.QueuePrint("ERROR: No interface found in monitor mode. Exiting...")
+        else:
+          print("ERROR: No interface found in monitor mode. Exiting...")
+        time.sleep(5)
         return
-
 
     #--------------------------------------
     #-- Start threads
@@ -1975,7 +2110,10 @@ def main(stdscr):
             #DetailsWindow.refresh()
 
     except KeyboardInterrupt:
-        InfoWindow.QueuePrint("Stopping...")
+        if curses_enabled:
+          InfoWindow.QueuePrint("Stopping...")
+        else:
+          print("Stopping")
       
 
         gps_stop_event.set()
@@ -1984,40 +2122,63 @@ def main(stdscr):
 
 
 
-
+# This block ensures that the code within it only runs when the script is executed directly,
+# and not when it is imported as a module. This allows the script to be reused as a library
+# while still being runnable as a standalone program.
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Sentinel Program")
+    initialize_console_region(start_row=console_start_row,stop_row=console_stop_row)
 
-    # Add a parameter for Curses
+    console_region_title = "Packets   FriendlyName      PacketType             DeviceType         SourceMac        SourceVendor           SSID             BandSignal      Lat      Lon"
+    console_region.print_line(text=console_region_title,line=console_region.title_row)
+    
+
+    # Add parameters
     parser.add_argument(
         "--Raw",
         choices=["Y", "N"],
         default="N",
-        help="Raw = Y is for basic output, no  fancy text windows."
+        help="--Raw Y is for basic output, no  fancy text windows."
     )
+
+    parser.add_argument(
+        "--Friendly",
+        choices=["Y", "N"],
+        default="Y",
+        help="--Friendly Y causes friendly devices to be included in the display (can be a bit noisy if sentinel is not mobile)"
+    )
+
 
     # Parse the arguments
     args = parser.parse_args()
 
     # Convert the input to a boolean for easier handling
     curses_enabled = args.Raw == "N"
+    show_friendly  = args.Friendly == "Y"
 
     if curses_enabled:
       curses.wrapper(main)
     else:
-
+     
 
       # Initialize colorama for Windows compatibility
       init()
       print(Fore.RED)
-
       os.system('clear') #clear the terminal (optional)
-
-      print(pyfiglet.figlet_format("SENTINEL PASSIVE SURVEILLANCE SYSTEM", font='pagga'))
-      print(pyfiglet.figlet_format("RAW DISPLAY MODE", font="pagga"))
+      print(pyfiglet.figlet_format("      SENTINEL PASSIVE SURVEILLANCE SYSTEM",font='pagga',justify='left',width=console_width))
+      print(pyfiglet.figlet_format("                     RAW OUTPUT MODE                ",font='pagga',justify='left',width=console_width))
       print(Fore.GREEN)
-      print("")
 
+      
+      
+
+
+      fig = pyfiglet.Figlet(
+          font="standard",      # Default font
+          direction="auto",     # Default direction
+          justify="auto"        # Default alignment
+          
+      )
       # List all available fonts
       #fonts = pyfiglet.FigletFont.getFonts()
       #print("Available Fonts:")
