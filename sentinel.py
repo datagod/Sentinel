@@ -6,6 +6,7 @@ Notes:
  - a separate thread will read the window_queue and write the string to the correct window
  - store raw packets for further processing by A.I. to fingerprint devices that have modified their MAC repeatedly
  - find out if friendly cache is working
+ - look into seeing what we can pull out of RadioTap packet layers
 
 Sentinel Passive Surveillance System
 ====================================
@@ -98,11 +99,11 @@ current_longitude       = None
 
 
 #Timers
-hop_interval      = 1  #Interval in seconds between channel hops
-hop_modifier      = 5    #modifies the hop interval so we don't wait as long on 5Ghz channels 
+hop_interval      = 1    #Interval in seconds between channel hops
+hop_modifier      = 5    #divides modifies the hop interval so we don't wait as long on 5Ghz channels 
 main_interval     = 30   #Interval in seconds for the main loop
-gps_interval      = 1    #Interval in seconds for the GPS check
-HeaderUpdateSpeed = 25
+gps_interval      = 2    #Interval in seconds for the GPS check
+HeaderUpdateSpeed = 1
 
 
 
@@ -117,12 +118,17 @@ HeaderHeight  = 15
 HeaderWidth   = 80
 
 #Console variables
-console_width  = shutil.get_terminal_size().columns
-console_height = shutil.get_terminal_size().lines
-console_region = None
-console_start_row  = 30
-console_stop_row   = console_height
+console_width            = shutil.get_terminal_size().columns
+console_height           = shutil.get_terminal_size().lines
+console_region           = None
+console_start_row        = 16
+console_stop_row         = console_height
+console_header_start_row = 4
+console_region_title = "Packets   Friendly PacketType   DeviceType   SourceMac          SourceVendor                SSID                       BandSignal      Lat      Lon"
 
+
+
+      
 
 
 #--------------------------------------------------------------------
@@ -198,10 +204,10 @@ class ConsoleRegion:
         start_row (int): The starting row of the region.
         stop_row (int): The ending row of the region.
         """
-        self.title_row   = start_row
-        self.start_row   = start_row+1
+        self.title_row   = start_row 
+        self.start_row   = start_row +1
         self.stop_row    = stop_row
-        self.current_row = start_row
+        self.current_row = self.start_row
         
 
 
@@ -243,7 +249,7 @@ class ConsoleRegion:
         if self.current_row > self.stop_row:
             self.current_row = self.start_row
 
-    def print_line(self, text, align="left", line=' '):
+    def print_line(self, text, align="left", line=0):
         """
         Print a string to the specified line in the region.
         
@@ -256,24 +262,11 @@ class ConsoleRegion:
         # Truncate text if it exceeds console width
         text = text[:console_width]
 
-        # Reset the previous line if it's within bounds
-        if hasattr(self, "previous_row") and self.previous_row:
-            print(f"\033[{self.previous_row};1H{self.previous_text}", end="")
-            print("\033[K", end="")  # Clear the rest of the line
-
-        # Print the current line
-        print(f"\033[{self.current_row};1H{text}", end="")
+                # Print the current line
+        print(f"\033[{line};1H{text}", end="")
         print("\033[K", end="")  # Clear any leftover content on the line
 
-        # Store the current line's information for resetting next time
-        self.previous_row = self.current_row
-        self.previous_text = text
-
-        # Increment the current row and wrap around if it exceeds the stop row
-        self.current_row += 1
-        if self.current_row > self.stop_row:
-            self.current_row = self.start_row
-
+        
 
 
 def ErrorHandler(ErrorMessage='',TraceMessage='',AdditionalInfo=''):
@@ -926,8 +919,6 @@ def process_DBQueue():
     DBConnection = sqlite3.connect(PacketDB)
     if curses_enabled:
       InfoWindow.QueuePrint("Database connection established.")
-    else:
-      print("Database connection established.")
 
 
     while True:
@@ -994,8 +985,7 @@ def process_packet(packet):
 
     
     friendly_device_key = None
-
-  
+ 
 
     def resolve_mac(mac, resolver_function, packet):
         #HeaderWindow.UpdateLine(1,40,f"Function: {inspect.currentframe().f_code.co_name}        ")
@@ -1147,12 +1137,13 @@ def process_packet(packet):
       key_count = len(displayed_packets_cache)
 
       #DetailsWindow.QueuePrint(f"{key_count} - {FriendlyName} - {FriendlyType} - {FriendlyBrand} - {ssid}")
-      if curses_enabled and show_friendly:
-          FormattedString = format_into_columns(DetailsWindow.columns, ProcessedPacket.FriendlyName,  ProcessedPacket.FriendlyType,   ProcessedPacket.FriendlyBrand,   ProcessedPacket.ssid, (f"{ProcessedPacket.band} {ProcessedPacket.channel} {ProcessedPacket.signal}dB"))
-          DetailsWindow.QueuePrint(FormattedString)
-      else:
-          #Format a string for the Detail Window display
-          if curses_enabled:
+      if curses_enabled: 
+          if show_friendly:
+            FormattedString = format_into_columns(DetailsWindow.columns, ProcessedPacket.FriendlyName,  ProcessedPacket.FriendlyType,   ProcessedPacket.FriendlyBrand,   ProcessedPacket.ssid, (f"{ProcessedPacket.band} {ProcessedPacket.channel} {ProcessedPacket.signal}dB"))
+            DetailsWindow.QueuePrint(FormattedString)
+      
+          else:
+            #Format a string for the Detail Window display
             FormattedString = format_into_columns(
                 DetailsWindow.columns, 
                 ProcessedPacket.DeviceType, 
@@ -1161,13 +1152,10 @@ def process_packet(packet):
                 ProcessedPacket.ssid, 
                 (f"{ProcessedPacket.band} {ProcessedPacket.channel} {ProcessedPacket.signal}dB")
                 )
-            PacketWindow.QueuePrint('INTRUDER DETAILS',Color=1)
-            DetailsWindow.QueuePrint(FormattedString,Color=3)
-
-
-      if curses_enabled:
-
-        if (show_friendly == True)  or (FriendlyName == None ):
+          PacketWindow.QueuePrint('INTRUDER DETAILS',Color=1)
+          DetailsWindow.QueuePrint(FormattedString,Color=3)
+      
+          if (show_friendly == True)  or (FriendlyName == None ):
             PacketWindow.QueuePrint(f'CaptureDate:   {timestamp}')
             PacketWindow.QueuePrint(f'FriendlyName:  {ProcessedPacket.FriendlyName}')    
             PacketWindow.QueuePrint(f'FriendlyType:  {ProcessedPacket.FriendlyType}')    
@@ -1221,31 +1209,31 @@ def process_packet(packet):
       dbqueue_size     = DBQueue.qsize()
    
       HeaderLines = {
-          1: f"Packets Processed:   {PacketCount}             ",
+          1: f"Packets Processed:   {PacketCount}                             ",
           2: f"Band:                {ProcessedPacket.band}                    ",
           3: f"Channel:             {str(ProcessedPacket.channel).ljust(5)}   ",
-          4: f"Packet Queue Size:   {packetqueue_size}        ",
-          5: f"DB Queue Size:       {dbqueue_size}            ",
-          6: f"Packets Saved to DB: {PacketsSavedToDBCount}   ",
-          7: f"Friendly Devices:    {friendly_key_count}      ",
-          8: f"Total Devices:       {key_count}               ",
-          9: f"Latitude:            {current_latitude}        ",
-         10: f"Longitude:           {current_longitude}       ",
-         10: f"Time:                {timestamp.replace(microsecond=0)}             ",
+          4: f"Packet Queue Size:   {packetqueue_size}                        ",
+          5: f"DB Queue Size:       {dbqueue_size}                            ",
+          6: f"Packets Saved to DB: {PacketsSavedToDBCount}                   ",
+          7: f"Friendly Devices:    {friendly_key_count}                      ",
+          8: f"Total Devices:       {key_count}                               ",
+          9: f"Latitude:            {current_latitude}                        ",
+         10: f"Longitude:           {current_longitude}                       ",
+         11: f"Time:                {timestamp.replace(microsecond=0)}        ",
       }
   
       if curses_enabled:
         HeaderWindow.set_fixed_lines(HeaderLines,Color=2)
       else:
         if (show_friendly == True)  or (ProcessedPacket.FriendlyName == None ):
-          PrintConsoleHeader(HeaderLines,15)
+          PrintConsoleHeader(HeaderLines,console_header_start_row)
 
     
     #print a row of activity to the console print region
     if (curses_enabled == False) and (show_friendly == True or (show_friendly == False and ProcessedPacket.FriendlyName == None)):
         # Create a dense single-line string for console output
         if ProcessedPacket.FriendlyName == None:
-            ProcessedPacket.FriendlyName = 'None'
+            ProcessedPacket.FriendlyName = '??'
         if band == None:
             band = '??'
         
@@ -1254,20 +1242,31 @@ def process_packet(packet):
         
         console_output = (
         
-            f"{str(PacketCount)[:10]:<10} | "
-            f"{ProcessedPacket.FriendlyName[:15]:<15} | "
-            f"{ProcessedPacket.PacketType[:20]:<20} | "
-            f"{ProcessedPacket.DeviceType[:30]:<30} | "
-            f"{ProcessedPacket.source_mac[:20]:<20} | "
+            f"{str(PacketCount)[:8]:<8} | "
+            f"{ProcessedPacket.FriendlyName[:5]:<5} | "
+            f"{ProcessedPacket.PacketType[:10]:<10} | "
+            f"{ProcessedPacket.DeviceType[:10]:<10} | "
+            f"{ProcessedPacket.source_mac[:18]:<18} | "
             f"{ProcessedPacket.source_vendor[:25]:<25} | "
-            f"{ProcessedPacket.ssid or 'N/A'[:20]:<20} | "
+            f"{ProcessedPacket.ssid or 'N/A'[:25]:<25} | "
             f"{BandSignal[:15]:<15} | "
             f"{current_latitude or 'N/A'[:10]:<10} | "
             f"{current_longitude or 'N/A'[:10]:<10}"
         )
         
         
-        console_region.region_print_line(console_output)
+        # We will ignore RadioTap packets for now
+        #if (packet.haslayer(RadioTap)):
+        #    radiotap_header = packet[RadioTap]
+        #    #Print the Radiotap header details
+        #    print(radiotap_header.show())
+        #    # Access the presence mask
+        #    presence_mask = radiotap_header.present
+        #    print(f"Presence Mask: {presence_mask}")
+        #    return
+        
+        if ('UNKNOWN' not in ProcessedPacket.source_mac):
+          console_region.region_print_line(console_output)
     
         
       
@@ -2062,29 +2061,44 @@ def main(stdscr):
     #-- Start threads
     #--------------------------------------
 
+    print ("Starting thread: process_PacketQueue")
     packet_processing_thread = threading.Thread(target=process_PacketQueue, name="PacketProcessingThread")
     packet_processing_thread.daemon = True  # Set as daemon so it exits with the main program
     packet_processing_thread.start()
 
     # Create and start the DB processing thread
+    print ("Starting thread: process_DBQueue")
     DB_processing_thread = threading.Thread(target=process_DBQueue, name="DBProcessingThread")
     DB_processing_thread.daemon = True  # Set as daemon so it exits with the main program
     DB_processing_thread.start()
 
     # Start the channel hopper thread
+    print ("Starting thread: channel_hopper")
     hopper_thread = threading.Thread(target=channel_hopper, args=(interface, hop_interval), name="ChannelHopperThread")
     hopper_thread.daemon = True
     hopper_thread.start()
 
     # Start packet sniffing thread
+    print ("Starting thread: sniff_packets")
     sniff_thread = threading.Thread(target=sniff_packets, args=(interface,), name="SniffingThread")
     sniff_thread.daemon = True  # Allows the program to exit even if the thread is running
     sniff_thread.start()
 
     # Start GPS thread
+    print ("Starting thread: gps_thread")
     gps_thread = threading.Thread(target=get_current_gps_coordinates, name="GPSThread")
     gps_thread.daemon = True  # Allows the program to exit even if the thread is running
     gps_thread.start()
+
+
+
+
+
+    #print some console stuff
+    if curses_enabled == False:
+      print (f"Console size: {console_width}x{console_height}")
+      console_region.print_line(text=console_region_title,line=console_region.title_row)        
+
 
 
     # Create and start the periodic logging thread
@@ -2167,15 +2181,14 @@ if __name__ == "__main__":
      
       #Console region
       initialize_console_region(start_row=console_start_row,stop_row=console_stop_row)
-      console_region_title = "Packets      FriendlyName      PacketType            DeviceType         SourceMac        SourceVendor           SSID             BandSignal      Lat      Lon"
-      console_region.print_line(text=console_region_title,line=console_region.title_row)
+      
 
       # Initialize colorama for Windows compatibility
       init()
       print(Fore.RED)
       os.system('clear') #clear the terminal (optional)
-      print(pyfiglet.figlet_format("      SENTINEL PASSIVE SURVEILLANCE SYSTEM",font='pagga',justify='left',width=console_width))
-      print(pyfiglet.figlet_format("                       RAW OUTPUT MODE                        ",font='pagga',justify='left',width=console_width))
+      print(pyfiglet.figlet_format("    SENTINEL PASSIVE SURVEILLANCE   ",font='pagga',justify='left',width=console_width))
+#      print(pyfiglet.figlet_format("                       RAW OUTPUT MODE                        ",font='pagga',justify='left',width=console_width))
       print(Fore.GREEN)
 
 
@@ -2192,7 +2205,7 @@ if __name__ == "__main__":
       #    print(font)
       #    print(pyfiglet.figlet_format(font, font=font))
       #    time.sleep(0.1)
-
+      
 
 
       main('RawMode')
