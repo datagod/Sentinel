@@ -48,7 +48,7 @@
 #                                                                            --
 # How It Works:                                                              --
 # 1. **Global Message Queue**:                                               --
-#    - A thread-safe queue (`print_queue`) is used to store messages.       --
+#    - A thread-safe queue (`TheQueue`) is used to store messages.       --
 #    - Each message includes the target window name and associated details.  --
 #                                                                            --
 # 2. **Message Enqueuing**:                                                  --
@@ -59,6 +59,7 @@
 # 3. **Queue Processor**:                                                    --
 #    - A dedicated thread (`queue_processor_thread`) runs continuously to    --
 #      process messages from the queue.                                      --
+#    - Queue messages have two types so far: print, keyboard
 #    - For each message, the processor identifies the target window (by name)--
 #      and invokes the `ScrollPrint` method to display the message.          --
 #    - If the target window does not exist, an error is logged but the       --
@@ -101,7 +102,7 @@ import logging
 import threading
 import queue
 
-print_queue = queue.Queue()
+TheQueue = queue.Queue()
 
 class BaseTextInterface:
     def __init__(self, name):
@@ -199,7 +200,7 @@ class TextWindow(BaseTextInterface):
         """
         Add a message to the global queue for this window.
         """
-        print_queue.put({
+        TheQueue.put({
             "window_name": self.name,
             "message"  : message,
             "Color"    : Color,
@@ -396,7 +397,7 @@ class TextWindow(BaseTextInterface):
             text = text[:max_length]
 
             # Enqueue the update request
-            print_queue.put({
+            TheQueue.put({
                 "window_name": self.name,
                 "message"    : text,
                 "Color"      : Color,
@@ -422,38 +423,45 @@ class TextWindow(BaseTextInterface):
 
 
 
-
 @staticmethod
 def ProcessQueue():
-    """
-    Processes the global print queue and updates the appropriate window.
-    """
     while True:
         try:
-            # Get the next message from the queue
-            item = print_queue.get()
-            if item is None:  # Exit loop if None is received
+            item = TheQueue.get()
+            if item is None:  # Exit condition
                 break
 
-            # Extract details from the message
-            window_name = item.get("window_name")
-            message = item.get("message")
-            Color = item.get("Color", 2)
-            row = item.get("row", None)
-            column = item.get("column", 0)
-            Bold = item.get("Bold", False)
+            msg_type = item.get("type")
+            
+            #--------------------------
+            #-- Print Lines
+            #--------------------------
+            if msg_type == "print":
+                # Handle print messages
+                window_name = item.get("window_name")
+                message = item.get("message")
+                Color = item.get("Color", 2)
+                row = item.get("row", -1)
+                column = item.get("column", 0)
+                Bold = item.get("BoldLine", False)
 
-            # Find the target window
-            window = TextWindow.windows.get(window_name)
-            if window:
-                # Call _apply_line_update for specific row/column updates
-                if row > -1:
-                    window._apply_line_update(row, column, message, Color, Bold)
+                window = TextWindow.windows.get(window_name)
+                if window:
+                    if row > -1:
+                        window._apply_line_update(row, column, message, Color, Bold)
+                    else:
+                        window.ScrollPrint(message, Color=Color, BoldLine=Bold)
                 else:
-                    # Fallback to ScrollPrint for general messages
-                    window.ScrollPrint(message, Color=Color, BoldLine=Bold)
-            else:
-                logging.warning(f"Window '{window_name}' not found for message: {message}")
+                    logging.warning(f"Window '{window_name}' not found for message: {message}")
+
+            #--------------------------
+            #-- Keyboard Input
+            #--------------------------
+            elif msg_type == "keyboard":
+                # Handle keyboard events
+                key = item.get("key")
+                logging.debug(f"Keyboard event: {key}")
+                # Add custom logic for handling keyboard inputs if needed
 
         except Exception as e:
             logging.error(f"Error processing message queue: {e}")
@@ -685,47 +693,11 @@ class TextPad(object):
             print("Additional info:", AdditionalInfo)
 
 
-# Global variable to hold the typed text
-typed_text = ""
 
-def PollKeyboard(stdscr):
-    # Get key press (polling)
-    try:
-        c = stdscr.getch()
-        if c != curses.ERR:
-            return c  # Return the pressed key
-        else:
-            return None
-    except Exception as ErrorMessage:
-        traceback.print_exc()
-        return None
 
-def ProcessKeypress(c, pad):
-    global typed_text
 
-    try:
-        if c == 27:  # Escape key to exit
-            return "EXIT"
 
-        elif c == 10:  # Enter key, print typed text to pad
-            pad.PadPrint(typed_text, Color=3, TimeStamp=True)
-            typed_text = ""
 
-        elif c == 8 or c == 127:  # Backspace key
-            typed_text = typed_text[:-1]
-
-        elif 0 <= c <= 255:
-            typed_text = chr(c)
-
-        # Display the currently typed text in the pad
-        pad.PadPrint(f"{typed_text}", Color=6)
-        pad.refresh()
-
-        return None
-
-    except Exception as ErrorMessage:
-        traceback.print_exc()
-        return None
 
 
 

@@ -48,6 +48,7 @@ import gps
 import inspect
 from functools import wraps
 from cachetools import TTLCache
+import termios, tty, sys
 
 import netaddr
 import threading
@@ -101,10 +102,11 @@ current_longitude       = None
 #Timers
 hop_interval      = 1    #Interval in seconds between channel hops
 hop_modifier      = 5    #divides modifies the hop interval so we don't wait as long on 5Ghz channels 
-main_interval     = 30   #Interval in seconds for the main loop
+main_interval     = 1    #Interval in seconds for the main loop
 gps_interval      = 2    #Interval in seconds for the GPS check
-HeaderUpdateSpeed = 1
-
+HeaderUpdateSpeed = 2
+last_time         = time.time()  #time in seconds since the epoch
+keyboard_interval = 1    #Interval in seconds to check for keypress
 
 
 #Windows variables
@@ -145,6 +147,121 @@ console_region_title = "Packets   Friendly PacketType   DeviceType   SourceMac  
 # |_|   |_| \_\\___/ \____|_____|____/____/___|_| \_|\____|        --
 #                                                                  --
 #--------------------------------------------------------------------
+
+
+
+
+#------------------------------------------------------------------------------
+# Keyboard Functions                                                         --
+#------------------------------------------------------------------------------
+
+
+def ProcessKeypress(Key):
+  global show_friendly
+  global show_routers
+  global console_region
+  
+  # q = quit
+  # t = restart in textwindow mode
+  # r = restart in raw mode
+    
+  if (Key == "p" or Key == " "):
+    time.sleep(5)
+
+
+  elif (Key == '1'):
+        print(Fore.RED)
+  elif (Key == '2'):
+        print(Fore.GREEN)
+  elif (Key == '3'):
+        print(Fore.BLUE)
+  elif (Key == '4'):
+        print(Fore.YELLOW)
+  elif (Key == '5'):
+        print(Fore.MAGENTA)
+  elif (Key == '6'):
+        print(Fore.CYAN)
+  elif (Key == '7'):
+        print(Fore.WHITE)
+
+  elif (Key == "q"):
+    print(f"\033[11;1H")
+    print(Fore.RED)
+    print(pyfiglet.figlet_format("            QUIT            ", font='pagga',width=console_width))
+    print('                                                  ')
+    print('                                                  ')
+    print('                                                  ')
+    print('                                                  ')
+    print('                                                  ')
+    exit()
+
+  elif (Key == "f"):
+    if show_friendly == False:
+      print(f"\033[{console_start_row};1H")
+      print(pyfiglet.figlet_format("      SHOW FRIENDLY          ", font='pagga',width=console_width))
+    else:
+      print(f"\033[{console_start_row};1H")
+      print(pyfiglet.figlet_format("      HIDE FRIENDLY          ", font='pagga',width=console_width))
+
+    show_friendly = not(show_friendly)
+
+
+  elif (Key == "r"):
+    if show_routers == False:
+      print(f"\033[{console_start_row};1H")
+      print(pyfiglet.figlet_format("      SHOW ROUTERS          ", font='pagga',width=console_width))
+    else:
+      print(f"\033[{console_start_row};1H")
+      print(pyfiglet.figlet_format("      HIDE ROUTERS          ", font='pagga',width=console_width))
+
+    show_routers = not(show_routers)
+
+
+  elif (Key == "R"):
+    print(f"\033[{console_start_row};1H")
+    print(Fore.RED,end='')
+    print(pyfiglet.figlet_format("         RESTART        ", font='pagga',width=console_width))
+    print('')
+    print('')
+    os.execl(sys.executable, sys.executable, *sys.argv)
+    
+  #Clear the console
+  elif (Key == 'c'):
+    print(f"\033[{console_start_row+1};1H", end="")
+    print("\033[0J", end="")
+    console_region.current_row = console_region.start_row +1
+    
+
+
+def get_keypress():
+    """Read a single keypress without clearing the screen."""
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        key = sys.stdin.read(1)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    return key
+
+
+
+
+
+
+
+
+
+
+
+
+def log_message(message):
+    """Logs a message using curses or standard print."""
+    if curses_enabled:
+        InfoWindow.QueuePrint(message)
+    else:
+        print(message)
+
 
 
 class PacketInformation():
@@ -1111,8 +1228,8 @@ def process_packet(packet):
           
 
     # Create a unique key for the packet based on important fields
-    ProcessedPacket.source_mac, ProcessedPacket.ssid, ProcessedPacket.source_vendor, ProcessedPacket.DeviceType, ProcessedPacket.signal = replace_none_with_unknown(ProcessedPacket.source_mac, ProcessedPacket.ssid, ProcessedPacket.source_vendor, ProcessedPacket.DeviceType, ProcessedPacket.signal)
-    packet_key = (ProcessedPacket.source_mac, ProcessedPacket.ssid, ProcessedPacket.source_vendor, ProcessedPacket.DeviceType, ProcessedPacket.signal)
+    ProcessedPacket.source_mac, ProcessedPacket.ssid, ProcessedPacket.source_vendor, ProcessedPacket.DeviceType = replace_none_with_unknown(ProcessedPacket.source_mac, ProcessedPacket.ssid, ProcessedPacket.source_vendor, ProcessedPacket.DeviceType)
+    packet_key = (ProcessedPacket.source_mac, ProcessedPacket.ssid, ProcessedPacket.source_vendor, ProcessedPacket.DeviceType)
 
     #Check for friendly device
     result = search_friendly_devices(ProcessedPacket.source_mac,friendly_devices_dict)
@@ -1152,8 +1269,8 @@ def process_packet(packet):
                 ProcessedPacket.ssid, 
                 (f"{ProcessedPacket.band} {ProcessedPacket.channel} {ProcessedPacket.signal}dB")
                 )
-          PacketWindow.QueuePrint('INTRUDER DETAILS',Color=1)
-          DetailsWindow.QueuePrint(FormattedString,Color=3)
+            PacketWindow.QueuePrint('INTRUDER DETAILS',Color=1)
+            DetailsWindow.QueuePrint(FormattedString,Color=3)
       
           if (show_friendly == True)  or (FriendlyName == None ):
             PacketWindow.QueuePrint(f'CaptureDate:   {timestamp}')
@@ -1229,44 +1346,45 @@ def process_packet(packet):
           PrintConsoleHeader(HeaderLines,console_header_start_row)
 
     
-    #print a row of activity to the console print region
-    if (curses_enabled == False) and (show_friendly == True or (show_friendly == False and ProcessedPacket.FriendlyName == None)):
-        # Create a dense single-line string for console output
-        if ProcessedPacket.FriendlyName == None:
-            ProcessedPacket.FriendlyName = '??'
-        if band == None:
-            band = '??'
-        
-        BandSignal = f"{ProcessedPacket.band} {ProcessedPacket.channel} {ProcessedPacket.signal}dB | "
+    
+      #print a row of activity to the console print region
+      if (curses_enabled == False) and (show_friendly == True or (show_friendly == False and ProcessedPacket.FriendlyName == None)):
+          # Create a dense single-line string for console output
+          if ProcessedPacket.FriendlyName == None:
+              ProcessedPacket.FriendlyName = '??'
+          if band == None:
+              band = '??'
+            
+          BandSignal = f"{ProcessedPacket.band} {ProcessedPacket.channel} {ProcessedPacket.signal}dB | "
 
-        
-        console_output = (
-        
-            f"{str(PacketCount)[:8]:<8} | "
-            f"{ProcessedPacket.FriendlyName[:5]:<5} | "
-            f"{ProcessedPacket.PacketType[:10]:<10} | "
-            f"{ProcessedPacket.DeviceType[:10]:<10} | "
-            f"{ProcessedPacket.source_mac[:18]:<18} | "
-            f"{ProcessedPacket.source_vendor[:25]:<25} | "
-            f"{ProcessedPacket.ssid or 'N/A'[:25]:<25} | "
-            f"{BandSignal[:15]:<15} | "
-            f"{current_latitude or 'N/A'[:10]:<10} | "
-            f"{current_longitude or 'N/A'[:10]:<10}"
-        )
-        
-        
-        # We will ignore RadioTap packets for now
-        #if (packet.haslayer(RadioTap)):
-        #    radiotap_header = packet[RadioTap]
-        #    #Print the Radiotap header details
-        #    print(radiotap_header.show())
-        #    # Access the presence mask
-        #    presence_mask = radiotap_header.present
-        #    print(f"Presence Mask: {presence_mask}")
-        #    return
-        
-        if ('UNKNOWN' not in ProcessedPacket.source_mac):
-          console_region.region_print_line(console_output)
+            
+          console_output = (
+            
+                f"{str(PacketCount)[:8]:<8} | "
+                f"{ProcessedPacket.FriendlyName[:5]:<5} | "
+                f"{ProcessedPacket.PacketType[:10]:<10} | "
+                f"{ProcessedPacket.DeviceType[:10]:<10} | "
+                f"{ProcessedPacket.source_mac[:18]:<18} | "
+                f"{ProcessedPacket.source_vendor[:25]:<25} | "
+                f"{ProcessedPacket.ssid or 'N/A'[:25]:<25} | "
+                f"{BandSignal[:15]:<15} | "
+                f"{current_latitude or 'N/A'[:10]:<10} | "
+                f"{current_longitude or 'N/A'[:10]:<10}"
+            )
+            
+            
+            # We will ignore RadioTap packets for now
+            #if (packet.haslayer(RadioTap)):
+            #    radiotap_header = packet[RadioTap]
+            #    #Print the Radiotap header details
+            #    print(radiotap_header.show())
+            #    # Access the presence mask
+            #    presence_mask = radiotap_header.present
+            #    print(f"Presence Mask: {presence_mask}")
+            #    return
+            
+          if ('UNKNOWN' not in ProcessedPacket.source_mac):
+            console_region.region_print_line(console_output)
     
         
       
@@ -1972,6 +2090,7 @@ def main(stdscr):
     global gps_stop_event
     global curses_enabled
     global console_region
+    global last_time
 
     looping = True
        
@@ -2033,6 +2152,7 @@ def main(stdscr):
         InfoWindow.QueuePrint(f"Height x Width {ScreenHeight}x{ScreenWidth}")    
 
         # Start the queue processing thread automatically
+        log_message('Starting thread: queue_processor_thread')
         queue_processor_thread = threading.Thread(target=textwindows.ProcessQueue, daemon=True)
         queue_processor_thread.start()
 
@@ -2061,35 +2181,34 @@ def main(stdscr):
     #-- Start threads
     #--------------------------------------
 
-    print ("Starting thread: process_PacketQueue")
+    log_message('Starting thread: process_PacketQueue')
     packet_processing_thread = threading.Thread(target=process_PacketQueue, name="PacketProcessingThread")
     packet_processing_thread.daemon = True  # Set as daemon so it exits with the main program
     packet_processing_thread.start()
 
     # Create and start the DB processing thread
-    print ("Starting thread: process_DBQueue")
+    log_message('Starting thread: process_DBQueue')
     DB_processing_thread = threading.Thread(target=process_DBQueue, name="DBProcessingThread")
     DB_processing_thread.daemon = True  # Set as daemon so it exits with the main program
     DB_processing_thread.start()
 
     # Start the channel hopper thread
-    print ("Starting thread: channel_hopper")
+    log_message('Starting thread: channel_hopper')
     hopper_thread = threading.Thread(target=channel_hopper, args=(interface, hop_interval), name="ChannelHopperThread")
     hopper_thread.daemon = True
     hopper_thread.start()
 
     # Start packet sniffing thread
-    print ("Starting thread: sniff_packets")
+    log_message('Starting thread: sniff_packets')
     sniff_thread = threading.Thread(target=sniff_packets, args=(interface,), name="SniffingThread")
     sniff_thread.daemon = True  # Allows the program to exit even if the thread is running
     sniff_thread.start()
 
     # Start GPS thread
-    print ("Starting thread: gps_thread")
+    log_message('Starting thread: gps_thread')
     gps_thread = threading.Thread(target=get_current_gps_coordinates, name="GPSThread")
     gps_thread.daemon = True  # Allows the program to exit even if the thread is running
     gps_thread.start()
-
 
 
 
@@ -2105,14 +2224,29 @@ def main(stdscr):
     #logging_thread = threading.Thread(target=periodic_thread_logging, name="ThreadLoggerThread", daemon=True)
     #logging_thread.start()
 
-
+    #----------------------------------
+    #-- Main Loop
+    #----------------------------------
     try:
-        # Keep the curses interface running
         while True:
-            time.sleep(main_interval)
+
+          
+          #Check for keyboard input
+          current_time = time.time()
+
+          if current_time - last_time >= keyboard_interval:
+            Key = get_keypress()
+            ProcessKeypress(Key)
+            last_time = current_time
+           
+          
+
+
+
+          time.sleep(main_interval)
             
             # Safely read GPS coordinates
-            with gps_lock:
+          with gps_lock:
                 current_latitude = latitude
                 current_longitude = longitude
                 
@@ -2134,6 +2268,9 @@ def main(stdscr):
 
         gps_stop_event.set()
         gps_thread.join()  
+
+
+
 
 
 
