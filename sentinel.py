@@ -126,7 +126,7 @@ console_region           = None
 console_start_row        = 16
 console_stop_row         = console_height
 console_header_start_row = 4
-console_region_title = "Packets   Friendly PacketType   DeviceType   SourceMac          SourceVendor                SSID                       BandSignal      Lat      Lon"
+console_region_title = "Packets   Friendly         PacketType  DeviceType   SourceMac          SourceVendor                SSID                       BandSignal"
 
 
 
@@ -148,6 +148,14 @@ console_region_title = "Packets   Friendly PacketType   DeviceType   SourceMac  
 #                                                                  --
 #--------------------------------------------------------------------
 
+
+
+#------------------------------------------------------------------------------
+# ASCII Functions                                                            --
+#------------------------------------------------------------------------------
+
+def clear_screen_ASCII():
+    print("\033[2J\033[H", end="", flush=True)  # Clear screen with ANSI escape code
 
 
 
@@ -185,7 +193,7 @@ def ProcessKeypress(Key):
         print(Fore.WHITE)
 
   elif (Key == "q"):
-    print(f"\033[11;1H")
+    print(f"\033[11;1H",flush=True)
     print(Fore.RED)
     print(pyfiglet.figlet_format("            QUIT            ", font='pagga',width=console_width))
     print('                                                  ')
@@ -197,7 +205,7 @@ def ProcessKeypress(Key):
 
   elif (Key == "f"):
     if show_friendly == False:
-      print(f"\033[{console_start_row};1H")
+      print(f"\033[{console_start_row};1H",flush=True)
       print(pyfiglet.figlet_format("      SHOW FRIENDLY          ", font='pagga',width=console_width))
     else:
       print(f"\033[{console_start_row};1H")
@@ -218,17 +226,44 @@ def ProcessKeypress(Key):
 
 
   elif (Key == "R"):
-    print(f"\033[{console_start_row};1H")
-    print(Fore.RED,end='')
+    print(f"\033[{console_start_row};1H",flush=True)
+    print(Fore.RED,end='',flush=True)
     print(pyfiglet.figlet_format("         RESTART        ", font='pagga',width=console_width))
     print('')
     print('')
     os.execl(sys.executable, sys.executable, *sys.argv)
+
+
+  #Switch from Windows to Raw or Raw to Windows and restart
+  elif (Key == "t"):
+    #clear the screen
+    #os.system('cls' if os.name == 'nt' else 'clear')    
+    clear_screen_ASCII()
     
+    print(f"\033[{console_start_row};1H",flush=True)
+    print(Fore.RED,end='')
+    print(pyfiglet.figlet_format("     TOGGLE WINDOWS/RAW        ", font='pagga',width=console_width))
+    
+    if curses_enabled == False:
+      custom_params = ["--Raw","N"]
+    else:
+      custom_params = ["--Raw","Y"]
+
+    #change the start parameters
+    new_argv = [sys.argv[0]] + custom_params
+
+    #Restart python program
+    os.execl(sys.executable, sys.executable, *new_argv)
+
+
+
   #Clear the console
   elif (Key == 'c'):
-    print(f"\033[{console_start_row+1};1H", end="")
+    print(f"\033[{1};1H", end="",flush=True)
     print("\033[0J", end="")
+    print(f"\033[{1};1H", end="",flush=True)
+    print(pyfiglet.figlet_format("    SENTINEL PASSIVE SURVEILLANCE   ",font='pagga',justify='left',width=console_width))
+
     console_region.current_row = console_region.start_row +1
     
 
@@ -1325,20 +1360,31 @@ def process_packet(packet):
       packetqueue_size = PacketQueue.qsize()
       dbqueue_size     = DBQueue.qsize()
    
+      # Pre-process values for formatting
+      packet_count = str(PacketCount)[:8]
+      band         = str(ProcessedPacket.band)[:8]
+      friendly     = 'Yes' if show_friendly else 'No'
+      routers      = 'Yes' if show_routers else 'No'
+      channel      = str(ProcessedPacket.channel).ljust(5)
+      time_display = timestamp.replace(microsecond=0)
+      #latitude     = str(current_latitude or "N/A"[:10])
+      #longitude    = str(current_longitude or "N/aA"[:10])
+      filler       = "            "
+      
+
+      # Define the HeaderLines dictionary with clean formatting
       HeaderLines = {
-          1: f"Packets Processed:   {PacketCount}                             ",
-          2: f"Band:                {ProcessedPacket.band}                    ",
-          3: f"Channel:             {str(ProcessedPacket.channel).ljust(5)}   ",
-          4: f"Packet Queue Size:   {packetqueue_size}                        ",
-          5: f"DB Queue Size:       {dbqueue_size}                            ",
-          6: f"Packets Saved to DB: {PacketsSavedToDBCount}                   ",
-          7: f"Friendly Devices:    {friendly_key_count}                      ",
-          8: f"Total Devices:       {key_count}                               ",
-          9: f"Latitude:            {current_latitude}                        ",
-         10: f"Longitude:           {current_longitude}                       ",
-         11: f"Time:                {timestamp.replace(microsecond=0)}        ",
+            1: f"Packets Processed:   {packet_count:<12}" + filler + f"ShowFriendly: {friendly:<5}",
+            2: f"Band:                {band:<12}"         + filler + f"ShowRouters:  {routers:<5}",
+            3: f"Channel:             {channel}",
+            4: f"Packet Queue Size:   {packetqueue_size:<12}",
+            5: f"DB Queue Size:       {dbqueue_size:<12}",
+            6: f"Packets Saved to DB: {PacketsSavedToDBCount:<12}",
+            7: f"Friendly Devices:    {friendly_key_count:<12}",
+            8: f"Total Devices:       {key_count:<12}",
+            9: f"Time:                {time_display}"
       }
-  
+
       if curses_enabled:
         HeaderWindow.set_fixed_lines(HeaderLines,Color=2)
       else:
@@ -1360,16 +1406,16 @@ def process_packet(packet):
             
           console_output = (
             
-                f"{str(PacketCount)[:8]:<8} | "
-                f"{ProcessedPacket.FriendlyName[:5]:<5} | "
-                f"{ProcessedPacket.PacketType[:10]:<10} | "
-                f"{ProcessedPacket.DeviceType[:10]:<10} | "
-                f"{ProcessedPacket.source_mac[:18]:<18} | "
-                f"{ProcessedPacket.source_vendor[:25]:<25} | "
-                f"{ProcessedPacket.ssid or 'N/A'[:25]:<25} | "
-                f"{BandSignal[:15]:<15} | "
-                f"{current_latitude or 'N/A'[:10]:<10} | "
-                f"{current_longitude or 'N/A'[:10]:<10}"
+                f"{str(PacketCount)[:8]:<8}  "
+                f"{ProcessedPacket.FriendlyName[:15]:<15}  "
+                f"{ProcessedPacket.PacketType[:10]:<10}  "
+                f"{ProcessedPacket.DeviceType[:10]:<10}  "
+                f"{ProcessedPacket.source_mac[:18]:<18}  "
+                f"{ProcessedPacket.source_vendor[:25]:<25}  "
+                f"{ProcessedPacket.ssid or 'N/A'[:25]:<25}  "
+                f"{BandSignal[:15]:<15}  "
+                #f"{current_latitude or 'N/A'[:10]:<10} | "
+                #f"{current_longitude or 'N/A'[:10]:<10}"
             )
             
             
@@ -2092,7 +2138,7 @@ def main(stdscr):
     global console_region
     global last_time
 
-    looping = True
+    
        
 
     #--------------------------------------
@@ -2100,6 +2146,7 @@ def main(stdscr):
     #--------------------------------------
 
     if curses_enabled:
+       
         # Call the helper function to initialize curses
         textwindows.initialize_curses(stdscr)
 
@@ -2279,6 +2326,11 @@ def main(stdscr):
 # and not when it is imported as a module. This allows the script to be reused as a library
 # while still being runnable as a standalone program.
 if __name__ == "__main__":
+    #Clear the screen
+    print(f"\033[{1};1H", end="",flush=True)
+
+    #Process input parameters
+    print("Program arguments:", sys.argv)
     parser = argparse.ArgumentParser(description="Sentinel Program")
 
     # Add parameters
