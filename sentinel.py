@@ -126,7 +126,7 @@ console_region           = None
 console_start_row        = 16
 console_stop_row         = console_height
 console_header_start_row = 4
-console_region_title = "Packets   Friendly         PacketType  DeviceType   SourceMac          SourceVendor                SSID                       BandSignal"
+console_region_title = "Packets   Friendly         PacketType  DeviceType   SourceMac          SourceVendor               SSID                       BandSignal"
 
 
 
