@@ -205,27 +205,40 @@ def ProcessKeypress(Key):
 
   elif (Key == "f"):
     if show_friendly == False:
-      print(f"\033[{console_start_row};1H",flush=True)
-      print(pyfiglet.figlet_format("      SHOW FRIENDLY          ", font='pagga',width=console_width))
+      if curses_enabled:
+        log_message("SHOW FRIENDLY ON")
+      else:
+        print(f"\033[{console_start_row};1H",flush=True)
+        print(pyfiglet.figlet_format("      SHOW FRIENDLY          ", font='pagga',width=console_width))
     else:
-      print(f"\033[{console_start_row};1H")
-      print(pyfiglet.figlet_format("      HIDE FRIENDLY          ", font='pagga',width=console_width))
+      if curses_enabled:
+        log_message("SHOW FRIENDLY OFF")
+      else:
+        print(f"\033[{console_start_row};1H")
+        print(pyfiglet.figlet_format("      HIDE FRIENDLY          ", font='pagga',width=console_width))
 
     show_friendly = not(show_friendly)
 
 
   elif (Key == "r"):
     if show_routers == False:
-      print(f"\033[{console_start_row};1H")
-      print(pyfiglet.figlet_format("      SHOW ROUTERS          ", font='pagga',width=console_width))
+      if curses_enabled:
+        log_message("SHOW ROUTERS ON")
+      else:
+        print(f"\033[{console_start_row};1H")
+        print(pyfiglet.figlet_format("      SHOW ROUTERS          ", font='pagga',width=console_width))
     else:
-      print(f"\033[{console_start_row};1H")
-      print(pyfiglet.figlet_format("      HIDE ROUTERS          ", font='pagga',width=console_width))
+      if curses_enabled:
+        log_message("SHOW ROUTERS OFF")
+      else:
+        print(f"\033[{console_start_row};1H")
+        print(pyfiglet.figlet_format("      HIDE ROUTERS          ", font='pagga',width=console_width))
 
     show_routers = not(show_routers)
 
 
   elif (Key == "R"):
+    os.system("stty sane")
     print(f"\033[{console_start_row};1H",flush=True)
     print(Fore.RED,end='',flush=True)
     print(pyfiglet.figlet_format("         RESTART        ", font='pagga',width=console_width))
@@ -239,7 +252,8 @@ def ProcessKeypress(Key):
     #clear the screen
     #os.system('cls' if os.name == 'nt' else 'clear')    
     clear_screen_ASCII()
-    
+    os.system("stty sane")
+
     print(f"\033[{console_start_row};1H",flush=True)
     print(Fore.RED,end='')
     print(pyfiglet.figlet_format("     TOGGLE WINDOWS/RAW        ", font='pagga',width=console_width))
@@ -259,12 +273,14 @@ def ProcessKeypress(Key):
 
   #Clear the console
   elif (Key == 'c'):
+    os.system("stty sane")
     print(f"\033[{1};1H", end="",flush=True)
     print("\033[0J", end="")
     print(f"\033[{1};1H", end="",flush=True)
-    print(pyfiglet.figlet_format("    SENTINEL PASSIVE SURVEILLANCE   ",font='pagga',justify='left',width=console_width))
 
-    console_region.current_row = console_region.start_row +1
+    if not curses_enabled:
+        print(pyfiglet.figlet_format("    SENTINEL PASSIVE SURVEILLANCE   ",font='pagga',justify='left',width=console_width))
+        console_region.current_row = console_region.start_row +1
     
 
 
@@ -292,6 +308,7 @@ def get_keypress():
 
 def log_message(message):
     """Logs a message using curses or standard print."""
+    
     if curses_enabled:
         InfoWindow.QueuePrint(message)
     else:
@@ -1021,6 +1038,7 @@ def save_DB_Packet(DBPacket):
 @profile_decorator
 def packet_callback(packet):
     try:
+
         # Add packet to the queues for processing and saving by other threads
         PacketQueue.put(packet)
         
@@ -1248,7 +1266,7 @@ def process_packet(packet):
       #Get the signal strength
       ProcessedPacket.signal = extract_signal_strength(packet)
        
-
+  
     except Exception as ErrorMessage:
       TraceMessage   = traceback.format_exc()
       AdditionalInfo = f"Processing Packet: {format_packet(packet)}"
@@ -1266,6 +1284,7 @@ def process_packet(packet):
     ProcessedPacket.source_mac, ProcessedPacket.ssid, ProcessedPacket.source_vendor, ProcessedPacket.DeviceType = replace_none_with_unknown(ProcessedPacket.source_mac, ProcessedPacket.ssid, ProcessedPacket.source_vendor, ProcessedPacket.DeviceType)
     packet_key = (ProcessedPacket.source_mac, ProcessedPacket.ssid, ProcessedPacket.source_vendor, ProcessedPacket.DeviceType)
 
+    
     #Check for friendly device
     result = search_friendly_devices(ProcessedPacket.source_mac,friendly_devices_dict)
     if result:
@@ -1279,7 +1298,7 @@ def process_packet(packet):
       friendly_device_cache[friendly_device_key] = True
       friendly_key_count = len(friendly_device_cache)
 
-
+      
 
     # To declutter the screen we don't display items that are in the cache
     # the cache expires after X minutes
@@ -1287,6 +1306,8 @@ def process_packet(packet):
       #add to cache
       displayed_packets_cache[packet_key] = True
       key_count = len(displayed_packets_cache)
+
+      
 
       #DetailsWindow.QueuePrint(f"{key_count} - {FriendlyName} - {FriendlyType} - {FriendlyBrand} - {ssid}")
       if curses_enabled: 
@@ -1307,7 +1328,7 @@ def process_packet(packet):
             PacketWindow.QueuePrint('INTRUDER DETAILS',Color=1)
             DetailsWindow.QueuePrint(FormattedString,Color=3)
       
-          if (show_friendly == True)  or (FriendlyName == None ):
+          if (show_friendly == True)  or (ProcessedPacket.FriendlyName == None ):
             PacketWindow.QueuePrint(f'CaptureDate:   {timestamp}')
             PacketWindow.QueuePrint(f'FriendlyName:  {ProcessedPacket.FriendlyName}')    
             PacketWindow.QueuePrint(f'FriendlyType:  {ProcessedPacket.FriendlyType}')    
@@ -1367,8 +1388,8 @@ def process_packet(packet):
       routers      = 'Yes' if show_routers else 'No'
       channel      = str(ProcessedPacket.channel).ljust(5)
       time_display = timestamp.replace(microsecond=0)
-      #latitude     = str(current_latitude or "N/A"[:10])
-      #longitude    = str(current_longitude or "N/aA"[:10])
+      latitude     = str(current_latitude or "N/A"[:10])
+      longitude    = str(current_longitude or "N/A"[:10])
       filler       = "            "
       
 
@@ -1382,7 +1403,10 @@ def process_packet(packet):
             6: f"Packets Saved to DB: {PacketsSavedToDBCount:<12}",
             7: f"Friendly Devices:    {friendly_key_count:<12}",
             8: f"Total Devices:       {key_count:<12}",
-            9: f"Time:                {time_display}"
+            9: f"Time:                {time_display}",
+           10: f"Longitude:           {longitude}",
+           11: f"Latitude:            {latitude}"
+
       }
 
       if curses_enabled:
@@ -2169,6 +2193,8 @@ def main(stdscr):
             (8, ""),
             (9, ""),
             (10, ""),
+            (11, ""),
+            (12, ""),
         ]
     
         HeaderWindow  = textwindows.HeaderWindow(name='HeaderWindow', title='Header',    rows= HeaderHeight, columns=window_width,    y1=0, x1=0,                                 ShowBorder='Y', BorderColor=2, TitleColor=3,fixed_lines=fixed_lines)
@@ -2211,7 +2237,6 @@ def main(stdscr):
     # Load the friendly devices dictionary
     friendly_devices_dict = load_friendly_devices_dict("FriendlyDevices.json")
     
-
 
 
     # Get the Wi-Fi interface in monitor mode
@@ -2266,7 +2291,6 @@ def main(stdscr):
       console_region.print_line(text=console_region_title,line=console_region.title_row)        
 
 
-
     # Create and start the periodic logging thread
     #logging_thread = threading.Thread(target=periodic_thread_logging, name="ThreadLoggerThread", daemon=True)
     #logging_thread.start()
@@ -2277,7 +2301,7 @@ def main(stdscr):
     try:
         while True:
 
-          
+         
           #Check for keyboard input
           current_time = time.time()
 
@@ -2285,8 +2309,6 @@ def main(stdscr):
             Key = get_keypress()
             ProcessKeypress(Key)
             last_time = current_time
-           
-          
 
 
 

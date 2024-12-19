@@ -430,38 +430,23 @@ def ProcessQueue():
             item = TheQueue.get()
             if item is None:  # Exit condition
                 break
+            # Handle print messages
+            window_name = item.get("window_name")
+            message = item.get("message")
+            Color = item.get("Color", 2)
+            row = item.get("row", -1)
+            column = item.get("column", 0)
+            Bold = item.get("BoldLine", False)
 
-            msg_type = item.get("type")
-            
-            #--------------------------
-            #-- Print Lines
-            #--------------------------
-            if msg_type == "print":
-                # Handle print messages
-                window_name = item.get("window_name")
-                message = item.get("message")
-                Color = item.get("Color", 2)
-                row = item.get("row", -1)
-                column = item.get("column", 0)
-                Bold = item.get("BoldLine", False)
-
-                window = TextWindow.windows.get(window_name)
-                if window:
-                    if row > -1:
-                        window._apply_line_update(row, column, message, Color, Bold)
-                    else:
-                        window.ScrollPrint(message, Color=Color, BoldLine=Bold)
+            window = TextWindow.windows.get(window_name)
+            if window:
+                if row > -1:
+                    window._apply_line_update(row, column, message, Color, Bold)
                 else:
-                    logging.warning(f"Window '{window_name}' not found for message: {message}")
+                    window.ScrollPrint(message, Color=Color, BoldLine=Bold)
+            else:
+                logging.warning(f"Window '{window_name}' not found for message: {message}")
 
-            #--------------------------
-            #-- Keyboard Input
-            #--------------------------
-            elif msg_type == "keyboard":
-                # Handle keyboard events
-                key = item.get("key")
-                logging.debug(f"Keyboard event: {key}")
-                # Add custom logic for handling keyboard inputs if needed
 
         except Exception as e:
             logging.error(f"Error processing message queue: {e}")
@@ -572,6 +557,8 @@ class HeaderWindow(TextWindow):
             else:
                 raise ValueError(f"Row {row} is out of bounds for the HeaderWindow.")
 
+        
+
     def update_fixed_line(self, row, text, Color=None):
         """
         Update a specific fixed line only if it has changed.
@@ -598,7 +585,7 @@ class HeaderWindow(TextWindow):
         """
         for row, text in updates.items():
             self.update_fixed_line(row, text, Color)
-
+            
     def refresh_header(self):
         """Re-draw all fixed lines if they have changed."""
         for row, text in self.fixed_lines.items():
