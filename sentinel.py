@@ -299,6 +299,257 @@ def get_keypress():
 
 
 
+def DisplayHeader():
+    global HeaderWindow
+    global PacketWindow
+    global InfoWindow
+    global DetailsWindow
+    global RawWindow
+    global oui_dict
+    global friendly_devices_dict
+    global current_channel_info
+    global displayed_packets_cache
+    global friendly_device_cache
+    global key_count
+    global PacketCount
+    global friendly_key_count
+    global DBQueue
+    global PacketsSavedToDBCount
+    global gps_lock
+    global console_region
+    global show_friendly
+
+
+    #-------------------------------
+    #-- Update Header
+    #-------------------------------
+   
+   
+    band     = str(current_channel_info.get('band','0')  if current_channel_info else '0')
+    channel  = str(current_channel_info.get('channel','0') if current_channel_info else '0')
+          
+    packetqueue_size = PacketQueue.qsize()
+    dbqueue_size     = DBQueue.qsize()
+   
+    # Pre-process values for formatting
+    packet_count = str(PacketCount)[:8]
+    friendly     = 'Yes' if show_friendly else 'No'
+    routers      = 'Yes' if show_routers else 'No'
+    time_display = datetime.now().replace(microsecond=0)
+    latitude     = str(current_latitude or "N/A"[:10])
+    longitude    = str(current_longitude or "N/A"[:10])
+    filler       = "            "
+      
+
+    # Define the HeaderLines dictionary with clean formatting
+    HeaderLines = {
+            1: f"Packets Processed:   {packet_count:<12}" + filler + f"ShowFriendly: {friendly:<5}",
+            2: f"Band:                {band:<12}"         + filler + f"ShowRouters:  {routers:<5}",
+            3: f"Channel:             {channel:<12}"      + filler,
+            4: f"Packet Queue Size:   {packetqueue_size:<12}",
+            5: f"DB Queue Size:       {dbqueue_size:<12}",
+            6: f"Packets Saved to DB: {PacketsSavedToDBCount:<12}",
+            7: f"Friendly Devices:    {friendly_key_count:<12}",
+            8: f"Total Devices:       {key_count:<12}",
+            9: f"Time:                {time_display}",
+           10: f"Longitude:           {longitude}",
+           11: f"Latitude:            {latitude}"
+
+      }
+
+    if curses_enabled:
+      HeaderWindow.set_fixed_lines(HeaderLines,Color=2)
+    else:
+      if (show_friendly == True)  or (ProcessedPacket.FriendlyName == None ):
+        PrintConsoleHeader(HeaderLines,console_header_start_row)
+
+    
+
+
+
+
+
+
+def ProcessPacketInfo(ProcessedPacket):
+    global HeaderWindow
+    global PacketWindow
+    global InfoWindow
+    global DetailsWindow
+    global RawWindow
+    global oui_dict
+    global friendly_devices_dict
+    global current_channel_info
+    global displayed_packets_cache
+    global friendly_device_cache
+    global key_count
+    global PacketCount
+    global friendly_key_count
+    global DBQueue
+    global PacketsSavedToDBCount
+    global gps_lock
+    global console_region
+    global show_friendly
+
+
+    channel       = 0
+    band          = 0
+    timestamp     = datetime.now()
+
+    if not ProcessedPacket:
+        log_message("ProcessPacketInfo: There was no packet to process!")
+        return
+
+    # Create a unique key for the packet based on important fields
+    ProcessedPacket.source_mac, ProcessedPacket.ssid, ProcessedPacket.source_vendor, ProcessedPacket.DeviceType = replace_none_with_unknown(ProcessedPacket.source_mac, ProcessedPacket.ssid, ProcessedPacket.source_vendor, ProcessedPacket.DeviceType)
+    packet_key = (ProcessedPacket.source_mac, ProcessedPacket.ssid, ProcessedPacket.source_vendor, ProcessedPacket.DeviceType)
+
+    
+    #Check for friendly device
+    result = search_friendly_devices(ProcessedPacket.source_mac,friendly_devices_dict)
+    if result:
+        ProcessedPacket.FriendlyName = result['FriendlyName']
+        ProcessedPacket.FriendlyType = result['Type']
+        ProcessedPacket.FriendlyBrand = result['Brand']
+
+        # Create a unique key for the friendly packet based on important fields
+        friendly_device_key = (ProcessedPacket.FriendlyName, ProcessedPacket.FriendlyType)
+        #add to cache
+        friendly_device_cache[friendly_device_key] = True
+        friendly_key_count = len(friendly_device_cache)
+
+      
+
+
+    # To declutter the screen we don't display items that are in the cache
+    # the cache expires after X minutes
+    
+    
+    if packet_key not in displayed_packets_cache:
+      #add to cache
+      displayed_packets_cache[packet_key] = True
+      key_count = len(displayed_packets_cache)
+  
+      #DetailsWindow.QueuePrint(f"{key_count} - {FriendlyName} - {FriendlyType} - {FriendlyBrand} - {ssid}")
+      if curses_enabled: 
+  
+    
+          if show_friendly:
+            FormattedString = format_into_columns(DetailsWindow.columns, 
+                                                  f"{ProcessedPacket.FriendlyName[:20]:<20} - {ProcessedPacket.FriendlyType[:20]:<20}",   
+                                                  ProcessedPacket.source_mac,
+                                                  ProcessedPacket.FriendlyBrand,   
+                                                  ProcessedPacket.ssid, 
+                                                  (f"{ProcessedPacket.band} {ProcessedPacket.channel} {ProcessedPacket.signal}dB"))
+            DetailsWindow.QueuePrint(FormattedString)
+      
+          else:
+  
+            #Format a string for the Detail Window display
+            FormattedString = format_into_columns(
+                DetailsWindow.columns, 
+                f"Unknown             - {ProcessedPacket.DeviceType:<20}",   
+                (ProcessedPacket.source_mac if (ProcessedPacket.source_mac != 'UNKNOWN' and ProcessedPacket.source_mac is not None) else ProcessedPacket.source_oui) , 
+                f"{ProcessedPacket.source_vendor} {ProcessedPacket.source_oui}",
+                ProcessedPacket.ssid, 
+                (f"{ProcessedPacket.band} {ProcessedPacket.channel} {ProcessedPacket.signal}dB")
+                )
+            PacketWindow.QueuePrint('INTRUDER DETAILS',Color=1)
+            DetailsWindow.QueuePrint(FormattedString,Color=3)
+      
+          if (show_friendly == True)  or (ProcessedPacket.FriendlyName == None ):
+            PacketWindow.QueuePrint(f'CaptureDate:   {timestamp}')
+            PacketWindow.QueuePrint(f'FriendlyName:  {ProcessedPacket.FriendlyName}')    
+            PacketWindow.QueuePrint(f'FriendlyType:  {ProcessedPacket.FriendlyType}')    
+            PacketWindow.QueuePrint(f'PacketType:    {ProcessedPacket.PacketType}')
+            PacketWindow.QueuePrint(f'DeviceType:    {ProcessedPacket.DeviceType}')
+            PacketWindow.QueuePrint(f'Source MAC:    {ProcessedPacket.source_mac}')
+            PacketWindow.QueuePrint(f'Source Vendor: {ProcessedPacket.source_vendor}')
+            PacketWindow.QueuePrint(f'Dest MAC:      {ProcessedPacket.dest_mac}')
+            PacketWindow.QueuePrint(f'Dest Vendor:   {ProcessedPacket.dest_vendor}')
+            PacketWindow.QueuePrint(f'SSID:          {ProcessedPacket.ssid}')
+            PacketWindow.QueuePrint(f'Band:          {ProcessedPacket.band}')
+            PacketWindow.QueuePrint(f'channel:       {ProcessedPacket.channel}')
+            PacketWindow.QueuePrint(f'signal:        {ProcessedPacket.signal} dB')
+            PacketWindow.QueuePrint('---------------------------------------------------')
+
+    
+      #--------------------------------------
+      #-- Save processed packet to DB Queue
+      #--------------------------------------
+      # For now we save Intruder details to the database
+      DBPacket = {
+        'CaptureDate' : ProcessedPacket.timestamp,
+        'FriendlyName': ProcessedPacket.FriendlyName,
+        'FriendlyType': ProcessedPacket.FriendlyType,
+        'PacketType'  : ProcessedPacket.PacketType,
+        'DeviceType'  : ProcessedPacket.DeviceType,
+        'SourceMAC'   : ProcessedPacket.source_mac,
+        'SourceVendor': ProcessedPacket.source_vendor,
+        'DestMAC'     : ProcessedPacket.dest_mac,
+        'DestVendor'  : ProcessedPacket.dest_vendor,
+        'SSID'        : ProcessedPacket.ssid,
+        'Band'        : ProcessedPacket.band,
+        'Channel'     : ProcessedPacket.channel,
+        'Latitude'    : current_latitude,
+        'Longitude'   : current_longitude,
+        'Signal'      : ProcessedPacket.signal
+        }
+    
+      DBQueue.put(DBPacket)
+      #insert_packet(DBPacket, db_path=PacketDB)
+
+
+
+
+    
+      #print a row of activity to the console print region
+      if (curses_enabled == False) and (show_friendly == True or (show_friendly == False and ProcessedPacket.FriendlyName == None)):
+          # Create a dense single-line string for console output
+          if ProcessedPacket.FriendlyName == None:
+              ProcessedPacket.FriendlyName = '??'
+          if band == None:
+              band = '??'
+            
+          BandSignal = f"{ProcessedPacket.band} {ProcessedPacket.channel} {ProcessedPacket.signal}dB | "
+
+            
+          console_output = (
+            
+                f"{str(PacketCount)[:8]:<8}  "
+                f"{ProcessedPacket.FriendlyName[:15]:<15}  "
+                f"{ProcessedPacket.PacketType[:10]:<10}  "
+                f"{ProcessedPacket.DeviceType[:10]:<10}  "
+                f"{ProcessedPacket.source_mac[:18]:<18}  "
+                f"{ProcessedPacket.source_vendor[:25]:<25}  "
+                f"{ProcessedPacket.ssid or 'N/A'[:25]:<25}  "
+                f"{BandSignal[:15]:<15}  "
+                #f"{current_latitude or 'N/A'[:10]:<10} | "
+                #f"{current_longitude or 'N/A'[:10]:<10}"
+            )
+            
+            
+            # We will ignore RadioTap packets for now
+            #if (packet.haslayer(RadioTap)):
+            #    radiotap_header = packet[RadioTap]
+            #    #Print the Radiotap header details
+            #    print(radiotap_header.show())
+            #    # Access the presence mask
+            #    presence_mask = radiotap_header.present
+            #    print(f"Presence Mask: {presence_mask}")
+            #    return
+            
+          if ('UNKNOWN' not in ProcessedPacket.source_mac):
+            console_region.region_print_line(console_output)
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -439,6 +690,7 @@ class ConsoleRegion:
 
 
 def ErrorHandler(ErrorMessage='',TraceMessage='',AdditionalInfo=''):
+  os.system("stty sane")
   CallingFunction =  inspect.stack()[1][3]
   #FinalCleanup(stdscr)
   print("")
@@ -1055,15 +1307,26 @@ def packet_callback(packet):
 def process_PacketQueue():
     global InfoWindow
 
-    
+    DisplayHeader()
+        
     while True:
         try:
+
+            #Display Header info
+            if PacketCount % HeaderUpdateSpeed == 0:
+              DisplayHeader()
+            
             # Retrieve a packet from the queue (wait indefinitely if empty)
             packet = PacketQueue.get()
 
-            process_packet(packet)
+            #Take the packet and extract data from it, storing it in a special object
+            ProcessedPacket = process_packet(packet)
 
-            
+            #take the special object and save to database, print to screen, etc.
+            if ProcessedPacket:
+              ProcessPacketInfo(ProcessedPacket)
+
+
             # Signal that processing of this item is done
             PacketQueue.task_done()
 
@@ -1142,19 +1405,7 @@ def process_packet(packet):
 
     #we now use an object to store the information
     ProcessedPacket = PacketInformation()
-    
-    count         = 0
     PacketCount   = PacketCount + 1
-    source_vendor = ''
-    dest_vendor   = ''
-    channel       = 0
-    band          = 0
-    timestamp     = datetime.now()
-    KeyTime       = datetime.now().replace(second=0, microsecond=0)
-    
-
-    
-    friendly_device_key = None
  
 
     def resolve_mac(mac, resolver_function, packet):
@@ -1278,8 +1529,11 @@ def process_packet(packet):
         InfoWindow.QueuePrint(f"Error parsing packet: {ErrorMessage}")
       else:
         ErrorHandler(TraceMessage,AdditionalInfo)
-          
 
+
+    return ProcessedPacket
+
+'''
     # Create a unique key for the packet based on important fields
     ProcessedPacket.source_mac, ProcessedPacket.ssid, ProcessedPacket.source_vendor, ProcessedPacket.DeviceType = replace_none_with_unknown(ProcessedPacket.source_mac, ProcessedPacket.ssid, ProcessedPacket.source_vendor, ProcessedPacket.DeviceType)
     packet_key = (ProcessedPacket.source_mac, ProcessedPacket.ssid, ProcessedPacket.source_vendor, ProcessedPacket.DeviceType)
@@ -1455,7 +1709,7 @@ def process_packet(packet):
             
           if ('UNKNOWN' not in ProcessedPacket.source_mac):
             console_region.region_print_line(console_output)
-    
+'''    
         
       
 
@@ -2215,7 +2469,7 @@ def main(stdscr):
         InfoWindow.DisplayTitle('Information')
         InfoWindow.refresh()
         
-        FormattedString = format_into_columns(DetailsWindow.columns, 'DeviceName','ProcessedPacket.DeviceType', 'FriendlyBrand', 'SSID','Band/Channel/Signal')
+        FormattedString = format_into_columns(DetailsWindow.columns, 'Name/Type','mac','DeviceBrand', 'SSID','Band/Channel/Signal')
         DetailsWindow.DisplayTitle(FormattedString,x=1)
         DetailsWindow.refresh()
 
