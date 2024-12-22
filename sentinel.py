@@ -203,6 +203,9 @@ def ProcessKeypress(Key):
     print('                                                  ')
     exit()
 
+  #----------------------------
+  #-- Toggle Friendly
+  #----------------------------
   elif (Key == "f"):
     if show_friendly == False:
       if curses_enabled:
@@ -218,8 +221,12 @@ def ProcessKeypress(Key):
         print(pyfiglet.figlet_format("      HIDE FRIENDLY          ", font='pagga',width=console_width))
 
     show_friendly = not(show_friendly)
+    DisplayHeader()
 
 
+  #----------------------------
+  #-- Toggle Routers
+  #----------------------------
   elif (Key == "r"):
     if show_routers == False:
       if curses_enabled:
@@ -235,8 +242,12 @@ def ProcessKeypress(Key):
         print(pyfiglet.figlet_format("      HIDE ROUTERS          ", font='pagga',width=console_width))
 
     show_routers = not(show_routers)
+    DisplayHeader()
 
 
+  #----------------------------
+  #-- Restart
+  #----------------------------
   elif (Key == "R"):
     os.system("stty sane")
     print(f"\033[{console_start_row};1H",flush=True)
@@ -247,6 +258,9 @@ def ProcessKeypress(Key):
     os.execl(sys.executable, sys.executable, *sys.argv)
 
 
+  #-----------------------------------
+  #-- Toggle TextWindows / Raw modes
+  #-----------------------------------
   #Switch from Windows to Raw or Raw to Windows and restart
   elif (Key == "t"):
     #clear the screen
@@ -271,7 +285,9 @@ def ProcessKeypress(Key):
 
 
 
-  #Clear the console
+  #-----------------------------------
+  #-- Clear the console
+  #-----------------------------------
   elif (Key == 'c'):
     os.system("stty sane")
     print(f"\033[{1};1H", end="",flush=True)
@@ -281,7 +297,9 @@ def ProcessKeypress(Key):
     if not curses_enabled:
         print(pyfiglet.figlet_format("    SENTINEL PASSIVE SURVEILLANCE   ",font='pagga',justify='left',width=console_width))
         console_region.current_row = console_region.start_row +1
-    
+
+    DisplayHeader()
+
 
 
 def get_keypress():
@@ -435,28 +453,30 @@ def ProcessPacketInfo(ProcessedPacket):
     
           if show_friendly:
             FormattedString = format_into_columns(DetailsWindow.columns, 
-                                                  f"{ProcessedPacket.FriendlyName[:20]:<20} - {ProcessedPacket.FriendlyType[:20]:<20}",   
+                                                  f"{ProcessedPacket.FriendlyName[:25]:<25} - {ProcessedPacket.FriendlyType[:20]:<20}",   
                                                   ProcessedPacket.source_mac,
                                                   ProcessedPacket.FriendlyBrand,   
                                                   ProcessedPacket.ssid, 
                                                   (f"{ProcessedPacket.band} {ProcessedPacket.channel} {ProcessedPacket.signal}dB"))
             DetailsWindow.QueuePrint(FormattedString)
-      
+
+
+
           else:
-  
+
             #Format a string for the Detail Window display
             FormattedString = format_into_columns(
                 DetailsWindow.columns, 
-                f"Unknown             - {ProcessedPacket.DeviceType:<20}",   
+                f"Unknown             - {ProcessedPacket.DeviceType[:20]:<20}",   
                 (ProcessedPacket.source_mac if (ProcessedPacket.source_mac != 'UNKNOWN' and ProcessedPacket.source_mac is not None) else ProcessedPacket.source_oui) , 
                 f"{ProcessedPacket.source_vendor} {ProcessedPacket.source_oui}",
                 ProcessedPacket.ssid, 
                 (f"{ProcessedPacket.band} {ProcessedPacket.channel} {ProcessedPacket.signal}dB")
                 )
-            PacketWindow.QueuePrint('INTRUDER DETAILS',Color=1)
             DetailsWindow.QueuePrint(FormattedString,Color=3)
-      
-          if (show_friendly == True)  or (ProcessedPacket.FriendlyName == None ):
+
+            #Show details in the packet window
+            PacketWindow.QueuePrint('INTRUDER DETAILS',Color=1)
             PacketWindow.QueuePrint(f'CaptureDate:   {timestamp}')
             PacketWindow.QueuePrint(f'FriendlyName:  {ProcessedPacket.FriendlyName}')    
             PacketWindow.QueuePrint(f'FriendlyType:  {ProcessedPacket.FriendlyType}')    
@@ -471,6 +491,8 @@ def ProcessPacketInfo(ProcessedPacket):
             PacketWindow.QueuePrint(f'channel:       {ProcessedPacket.channel}')
             PacketWindow.QueuePrint(f'signal:        {ProcessedPacket.signal} dB')
             PacketWindow.QueuePrint('---------------------------------------------------')
+      
+
 
     
       #--------------------------------------
