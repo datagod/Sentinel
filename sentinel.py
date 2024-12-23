@@ -81,6 +81,7 @@ profiling_data = {}                # Dictionary to store function run times
 curses_enabled          = True
 show_friendly           = True
 
+#Packet Stuff
 current_channel_info    = {"channel": None, "band": None, "frequency": None}
 displayed_packets_cache = TTLCache(maxsize=10000, ttl=900)   #entry expires after 15 minutes
 friendly_device_cache   = TTLCache(maxsize=10000, ttl=3600)  #entry expires after 1 hour
@@ -97,6 +98,7 @@ latitude                = None
 longitude               = None
 current_latitude        = None
 current_longitude       = None
+ProcessedPacket         = None
 
 
 #Timers
@@ -336,59 +338,67 @@ def DisplayHeader():
     global gps_lock
     global console_region
     global show_friendly
+    global ProcessedPacket
 
+    try:
 
-    #-------------------------------
-    #-- Update Header
-    #-------------------------------
-   
-   
-    band     = str(current_channel_info.get('band','0')  if current_channel_info else '0')
-    channel  = str(current_channel_info.get('channel','0') if current_channel_info else '0')
-          
-    packetqueue_size = PacketQueue.qsize()
-    dbqueue_size     = DBQueue.qsize()
-   
-    # Pre-process values for formatting
-    packet_count = str(PacketCount)[:8]
-    friendly     = 'Yes' if show_friendly else 'No'
-    routers      = 'Yes' if show_routers else 'No'
-    time_display = datetime.now().replace(microsecond=0)
-    latitude     = str(current_latitude or "N/A"[:10])
-    longitude    = str(current_longitude or "N/A"[:10])
-    filler       = "            "
-      
-
-    # Define the HeaderLines dictionary with clean formatting
-    HeaderLines = {
-            1: f"Packets Processed:   {packet_count:<12}" + filler + f"ShowFriendly: {friendly:<5}",
-            2: f"Band:                {band:<12}"         + filler + f"ShowRouters:  {routers:<5}",
-            3: f"Channel:             {channel:<12}"      + filler,
-            4: f"Packet Queue Size:   {packetqueue_size:<12}",
-            5: f"DB Queue Size:       {dbqueue_size:<12}",
-            6: f"Packets Saved to DB: {PacketsSavedToDBCount:<12}",
-            7: f"Friendly Devices:    {friendly_key_count:<12}",
-            8: f"Total Devices:       {key_count:<12}",
-            9: f"Time:                {time_display}",
-           10: f"Longitude:           {longitude}",
-           11: f"Latitude:            {latitude}"
-
-      }
-
-    if curses_enabled:
-      HeaderWindow.set_fixed_lines(HeaderLines,Color=2)
-    else:
-      if (show_friendly == True)  or (ProcessedPacket.FriendlyName == None ):
-        PrintConsoleHeader(HeaderLines,console_header_start_row)
-
+        #-------------------------------
+        #-- Update Header
+        #-------------------------------
     
+    
+        band     = str(current_channel_info.get('band','0')  if current_channel_info else '0')
+        channel  = str(current_channel_info.get('channel','0') if current_channel_info else '0')
+            
+        packetqueue_size = PacketQueue.qsize()
+        dbqueue_size     = DBQueue.qsize()
+    
+        # Pre-process values for formatting
+        packet_count = str(PacketCount)[:8]
+        friendly     = 'Yes' if show_friendly else 'No'
+        routers      = 'Yes' if show_routers else 'No'
+        time_display = datetime.now().replace(microsecond=0)
+        latitude     = str(current_latitude or "N/A"[:10])
+        longitude    = str(current_longitude or "N/A"[:10])
+        filler       = "            "
+        
+
+        # Define the HeaderLines dictionary with clean formatting
+        HeaderLines = {
+                1: f"Packets Processed:   {packet_count:<12}"           + filler + f"ShowFriendly: {friendly:<5}",
+                2: f"Band:                {band:<12}"                   + filler + f"ShowRouters:  {routers:<5}",
+                3: f"Channel:             {channel:<12}"                + filler,
+                4: f"Packet Queue Size:   {packetqueue_size:<12}"       + filler,
+                5: f"DB Queue Size:       {dbqueue_size:<12}"           + filler,
+                6: f"Packets Saved to DB: {PacketsSavedToDBCount:<12}"  + filler,
+                7: f"Friendly Devices:    {friendly_key_count:<12}"     + filler,
+                8: f"Total Devices:       {key_count:<12}"              + filler,
+                9: f"Time:                {time_display}"               + filler,
+               10: f"Longitude:           {longitude}"                  + filler,
+               11: f"Latitude:            {latitude}"                   + filler
+
+        }
+
+        if curses_enabled:
+            HeaderWindow.set_fixed_lines(HeaderLines,Color=2)
+        else:
+            if (show_friendly == True)  or (ProcessedPacket.FriendlyName == None ):
+                PrintConsoleHeader(HeaderLines,console_header_start_row)
+
+    except Exception as e:
+        TraceMessage = traceback.format_exc()
+        if curses_enabled:
+          InfoWindow.ErrorHandler(str(e), TraceMessage, "**Display Header Error**")
+        else:
+          ErrorHandler(TraceMessage)
+        
 
 
 
 
 
 
-def ProcessPacketInfo(ProcessedPacket):
+def ProcessPacketInfo():
     global HeaderWindow
     global PacketWindow
     global InfoWindow
@@ -407,11 +417,12 @@ def ProcessPacketInfo(ProcessedPacket):
     global gps_lock
     global console_region
     global show_friendly
+    global ProcessedPacket
 
-
-    channel       = 0
-    band          = 0
-    timestamp     = datetime.now()
+    channel         = 0
+    band            = 0
+    timestamp       = datetime.now()
+    friendly_device = False
 
     if not ProcessedPacket:
         log_message("ProcessPacketInfo: There was no packet to process!")
@@ -425,6 +436,7 @@ def ProcessPacketInfo(ProcessedPacket):
     #Check for friendly device
     result = search_friendly_devices(ProcessedPacket.source_mac,friendly_devices_dict)
     if result:
+        friendly_device = True
         ProcessedPacket.FriendlyName = result['FriendlyName']
         ProcessedPacket.FriendlyType = result['Type']
         ProcessedPacket.FriendlyBrand = result['Brand']
@@ -451,7 +463,7 @@ def ProcessPacketInfo(ProcessedPacket):
       if curses_enabled: 
   
     
-          if show_friendly:
+          if show_friendly and friendly_device:
             FormattedString = format_into_columns(DetailsWindow.columns, 
                                                   f"{ProcessedPacket.FriendlyName[:25]:<25} - {ProcessedPacket.FriendlyType[:20]:<20}",   
                                                   ProcessedPacket.source_mac,
@@ -1328,6 +1340,7 @@ def packet_callback(packet):
 @profile_decorator
 def process_PacketQueue():
     global InfoWindow
+    global ProcessedPacket
 
     DisplayHeader()
         
@@ -1341,12 +1354,15 @@ def process_PacketQueue():
             # Retrieve a packet from the queue (wait indefinitely if empty)
             packet = PacketQueue.get()
 
+            #Initialize and empty packet to store processed information
+            ProcessedPacket = PacketInformation()
+
             #Take the packet and extract data from it, storing it in a special object
             ProcessedPacket = process_packet(packet)
 
             #take the special object and save to database, print to screen, etc.
             if ProcessedPacket:
-              ProcessPacketInfo(ProcessedPacket)
+              ProcessPacketInfo()
 
 
             # Signal that processing of this item is done
@@ -1425,8 +1441,6 @@ def process_packet(packet):
     global console_region
     
 
-    #we now use an object to store the information
-    ProcessedPacket = PacketInformation()
     PacketCount   = PacketCount + 1
  
 
