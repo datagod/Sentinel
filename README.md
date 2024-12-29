@@ -116,8 +116,50 @@ To store captured packet data and related information, the Sentinel system uses 
 ---
 
 ## Usage
+### Launching Sentinel in RAW Mode
+For simplified output without the text windows, Sentinel can be launched in RAW Mode. A Bash script is included to handle the setup and execution.
 
-### Launching the Application
+#### Included Script
+
+`raw.sh`, is provided to streamline launching Sentinel in RAW Mode:
+
+#### What the Script Does
+1. **Clear the Console:** Clears the terminal for a clean output.
+2. **Set Up Colors:** Defines color codes for terminal output for better readability.
+3. **Navigate to Sentinel Directory:** Switches to the directory where Sentinel is located.
+4. **Prevent Duplicate Instances:** Checks if Sentinel is already running and exits if so.
+5. **Configure Wi-Fi Interface:** Switches `wlan1` to monitor mode for packet capture.
+6. **Launch Sentinel:** Starts Sentinel in RAW Mode with the following options:
+   - `--Raw Y`: Enables RAW Mode.
+   - `--Friendly Y`: Includes friendly devices in the display.
+   - `--Routers Y`: Includes routers and access points in the traffic processing.
+7. **Clean Up:** Ensures the terminal is restored to a sane state after execution.
+
+#### Using the Script
+
+1. **Make the Script Executable**
+   Ensure the script has execute permissions:
+   ```bash
+   chmod +x launch_raw_mode.sh
+   ```
+
+2. **Run the Script**
+   Execute the script to launch Sentinel in RAW Mode:
+   ```bash
+   ./launch_raw_mode.sh
+   ```
+
+3. **Output**
+   - The terminal will display a confirmation if Sentinel is already running.
+   - The script configures the Wi-Fi interface and launches Sentinel with the specified parameters.
+
+4. **After Use**
+   The terminal is reset to a sane state to ensure it functions correctly after the script completes.
+
+---
+
+
+### Launching the Application Directly
 Run the Sentinel program:
 ```bash
 sudo python3 sentinel.py
