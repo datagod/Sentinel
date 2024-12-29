@@ -1,5 +1,8 @@
 # Sentinel Passive Surveillance
 
+![image](https://github.com/user-attachments/assets/6a547625-ca1e-4527-8d2a-9405fc0ca5a3)
+
+
 ## Overview
 The Sentinel program is designed for monitoring and securing network environments by identifying devices within a secure zone and ensuring full visibility of Wi-Fi activity. It utilizes Wi-Fi channel hopping and packet sniffing to monitor devices across all available in 2.4 and 5 GHz channels, including both DFS and non-DFS. Sentinel is ideal for network diagnostics, security analysis, and detecting rogue devices in a monitored area.
 
