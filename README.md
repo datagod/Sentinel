@@ -81,6 +81,40 @@ The **Sentinel Passive Surveillance System** is a robust passive network surveil
 
 ---
 
+## Setting Up the Database
+
+To store captured packet data and related information, the Sentinel system uses an SQLite database. Follow the steps below to create the necessary database and tables.
+
+### Prerequisites
+
+- Ensure Python 3 is installed on your system.
+- The `sqlite3` library is included by default in Python, so no additional installation is necessary.
+
+### Steps to Create the Database
+
+1. **Run the Script**
+   Execute the script in a terminal or command prompt using Python 3:
+
+   ```bash
+   python3 create_database.py
+   ```
+
+3. **Verify the Database**
+   After running the script:
+   - A file named `packet.db` will be created in the current directory.
+   - Inside the database:
+     - `Packet` table stores processed packet details, including metadata like MAC addresses, SSIDs, and signal strength.
+     - `RawPacket` table stores raw packet data for advanced analysis.
+
+4. **Using the Database**
+   The `sentinel.py` script will automatically detect and use the `packet.db` database during operation.
+
+---
+
+
+
+---
+
 ## Usage
 
 ### Launching the Application
