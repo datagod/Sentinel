@@ -1,5 +1,8 @@
 # Sentinel Passive Surveillance System
 
+![image](https://github.com/user-attachments/assets/6a547625-ca1e-4527-8d2a-9405fc0ca5a3)
+
+
 ## Overview
 The **Sentinel Passive Surveillance System** is a robust passive network surveillance tool designed for capturing and analyzing Wi-Fi packets. It identifies devices, extracts metadata such as MAC addresses, SSIDs, vendors, and protocols, and provides detailed analysis through a text-based user interface or raw console output.
 
