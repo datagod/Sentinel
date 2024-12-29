@@ -142,6 +142,12 @@ sudo python3 sentinel.py --Raw Y --Friendly N --Routers Y
 
 ## Output Examples
 
+### Reports Example
+**Top 25 Devices Today**
+![image](https://github.com/user-attachments/assets/2b50480d-9c32-4b18-b212-53beac21c2be)
+
+
+
 ### Curses UI Example
 ```plaintext
 +-----------------------------------------------------+
