@@ -120,6 +120,15 @@ class BaseTextInterface:
         if AdditionalInfo:
             logging.debug(f"Additional Info: {AdditionalInfo}")
 
+        print(f"\033[0;0H", end="", flush=True)  # Explicitly set cursor to row 0, column 0
+        print("ERROR - CHECK THE ERRORLOG")
+        print(ErrorMessage)
+        print(TraceMessage)
+        print(AdditionalInfo)
+
+        
+
+
         # Also print to console if necessary
         #print("ERROR - An error occurred in TextWindow or TextPad class.")
         #print(ErrorMessage)
@@ -130,7 +139,7 @@ class BaseTextInterface:
 
 
         # Optional delay to give time for users to read the error (if used interactively)
-        time.sleep(5)
+        #time.sleep(5)
 
 
 

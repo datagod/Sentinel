@@ -509,9 +509,9 @@ def ProcessPacketInfo():
     result = search_friendly_devices(ProcessedPacket.source_mac,friendly_devices_dict)
     if result:
         ProcessedPacket.FriendlyDevice = True
-        ProcessedPacket.FriendlyName   = result['FriendlyName']
-        ProcessedPacket.FriendlyType   = result['Type']
-        ProcessedPacket.FriendlyBrand  = result['Brand']
+        ProcessedPacket.FriendlyName   = result.get('FriendlyName', '') or ''
+        ProcessedPacket.FriendlyType   = result.get('Type','')          or '' 
+        ProcessedPacket.FriendlyBrand  = result.get('Brand','')         or ''
 
         # Create a unique key for the friendly packet based on important fields
         friendly_device_key = (ProcessedPacket.FriendlyName, ProcessedPacket.FriendlyType)
@@ -535,9 +535,7 @@ def ProcessPacketInfo():
   
     
           if show_friendly and ProcessedPacket.FriendlyDevice == True:
-
-            NameString = ProcessedPacket.FriendlyName + " - " + ProcessedPacket.FriendlyType
-                       
+            NameString = f"{str(ProcessedPacket.FriendlyName)} - {str(ProcessedPacket.FriendlyType)}"
             
             FormattedString = format_into_columns(DetailsWindow.columns, 
                 f"{NameString[:30]:<30}",   
@@ -668,8 +666,12 @@ def ProcessPacketInfo():
 
 
 
-def log_message(message, window=None,color=None):
+def log_message(message, window=None,color=2,ShowTime=None):
     """Logs a message using curses or standard print."""
+
+    if ShowTime:
+       message = f"{str(datetime.now())[11:19]:<8} - {message}"
+       
 
     try:
         if curses_enabled:
@@ -1714,7 +1716,6 @@ def process_PacketQueue():
     global ProcessedPacket
 
     ProcessedPacket = PacketInformation()
-    log_message(f"{PacketCount}  FriendlyDevice: {ProcessedPacket.FriendlyDevice}")
     DisplayHeader()
     
     while True:
@@ -1760,9 +1761,9 @@ def process_DBQueue():
     global DBConnection
 
     #Database connections
+    log_message("Establishing SQLite connection",ShowTime=True)
     DBConnection = sqlite3.connect(PacketDB)
-    if curses_enabled:
-      InfoWindow.QueuePrint("Database connection established.")
+    log_message("Database connection established.",ShowTime=True)
 
 
     while True:
@@ -2225,10 +2226,7 @@ def get_monitor_mode_interface():
         # Check which interface is in monitor mode
         for iface, mode in interfaces:
             if mode == "monitor":
-                if curses_enabled:
-                  InfoWindow.QueuePrint(f"Monitoring interface: {iface}")
-                else:
-                  print(f"Monitoring interface: {iface}")
+                log_message(f"Monitoring interface: {iface}",ShowTime=True)
                 return iface
 
     except subprocess.CalledProcessError as e:
@@ -2730,12 +2728,15 @@ def main(stdscr):
         #RawWindow.DisplayTitle('Raw Data')
         #RawWindow.refresh()
     
-        InfoWindow.QueuePrint(f"Height x Width {ScreenHeight}x{ScreenWidth}")    
+
+        log_message(f"Height x Width {ScreenHeight}x{ScreenWidth}")    
 
         # Start the queue processing thread automatically
-        InfoWindow.QueuePrint('Starting thread: queue_processor_thread')
+        log_message(f"Starting thread: queue_processor_thread",ShowTime=True)
         queue_processor_thread = threading.Thread(target=textwindows.ProcessQueue, daemon=True)
         queue_processor_thread.start()
+        TheTime = f"{str(datetime.now())[11:19]:<8}"
+        log_message(f"queue_processor_thread started",ShowTime=True)
 
 
     # Load the OUI dictionary
@@ -2767,31 +2768,31 @@ def main(stdscr):
 
 
     # Create and start the DB processing thread
+    log_message("Starting thread: process_DBQueue",ShowTime=True)
     DB_processing_thread = threading.Thread(target=process_DBQueue, name="DBProcessingThread")
     DB_processing_thread.daemon = True  # Set as daemon so it exits with the main program
     DB_processing_thread.start()
-    log_message(f"{datetime.now().replace(microsecond=0)} Starting thread: process_DBQueue")
 
-    log_message(f"{datetime.now().replace(microsecond=0)} Starting thread: process_PacketQueue")
+    log_message("Starting thread: process_PacketQueue",ShowTime=True)
     packet_processing_thread = threading.Thread(target=process_PacketQueue, name="PacketProcessingThread")
     packet_processing_thread.daemon = True  # Set as daemon so it exits with the main program
     packet_processing_thread.start()
 
 
     # Start the channel hopper thread
-    log_message('Starting thread: channel_hopper')
+    log_message('Starting thread: channel_hopper',ShowTime=True)
     hopper_thread = threading.Thread(target=channel_hopper, args=(interface, hop_interval), name="ChannelHopperThread")
     hopper_thread.daemon = True
     hopper_thread.start()
 
     # Start packet sniffing thread
-    log_message('Starting thread: sniff_packets')
+    log_message('Starting thread: sniff_packets',ShowTime=True)
     sniff_thread = threading.Thread(target=sniff_packets, args=(interface,), name="SniffingThread")
     sniff_thread.daemon = True  # Allows the program to exit even if the thread is running
     sniff_thread.start()
 
     # Start GPS thread
-    log_message('Starting thread: gps_thread')
+    log_message('Starting thread: gps_thread',ShowTime=True)
     gps_thread = threading.Thread(target=get_current_gps_coordinates, name="GPSThread")
     gps_thread.daemon = True  # Allows the program to exit even if the thread is running
     gps_thread.start()
@@ -2799,7 +2800,7 @@ def main(stdscr):
 
     #print some console stuff
     if curses_enabled == False:
-      log_message(f"Console size: {console_width}x{console_height}")
+      log_message(f"Console size: {console_width}x{console_height}",ShowTime=True)
       console_region.print_line(text=console_region_title,line=console_region.title_row,color=Fore.LIGHTBLUE_EX)        
 
       #reset the starting row
