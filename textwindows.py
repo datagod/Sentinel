@@ -101,6 +101,8 @@ import inspect
 import logging
 import threading
 import queue
+import os
+
 
 TheQueue = queue.Queue()
 
@@ -120,12 +122,12 @@ class BaseTextInterface:
         if AdditionalInfo:
             logging.debug(f"Additional Info: {AdditionalInfo}")
 
-        print(f"\033[0;0H", end="", flush=True)  # Explicitly set cursor to row 0, column 0
-        print("ERROR - CHECK THE ERRORLOG")
-        print(ErrorMessage)
-        print(TraceMessage)
-        print(AdditionalInfo)
-
+        os.system("stty sane")
+        print(f"\033[0;0H","ERROR - CHECK THE ERRORLOG",end="\r",flush=True)
+        print(f"\033[0;4H",ErrorMessage,end="\r",flush=True)
+        print(f"\033[0;8H",TraceMessage,end="\r",flush=True)
+        print(f"\033[0;12H",AdditionalInfo,end="\r",flush=True)
+        time.sleep(2)
         
 
 

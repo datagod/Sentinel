@@ -548,7 +548,9 @@ def ProcessPacketInfo():
 
 
           else:
-            NameString = ProcessedPacket.FriendlyName + " - " + ProcessedPacket.FriendlyType
+            
+            NameString = f"{str(ProcessedPacket.FriendlyName)} - {str(ProcessedPacket.FriendlyType)}"
+
             #Format a string for the Detail Window display
             FormattedString = format_into_columns(
                 DetailsWindow.columns, 
@@ -663,11 +665,25 @@ def ProcessPacketInfo():
 
 
 
-
+def get_curses_color_pair(fore_color):
+    color_map = {
+        Fore.RED: 1,      # Maps to curses color pair 1 (COLOR_RED on COLOR_BLACK)
+        Fore.GREEN: 2,    # Maps to curses color pair 2 (COLOR_GREEN on COLOR_BLACK)
+        Fore.YELLOW: 3,   # Maps to curses color pair 3 (COLOR_YELLOW on COLOR_BLACK)
+        Fore.BLUE: 4,     # Maps to curses color pair 4 (COLOR_BLUE on COLOR_BLACK)
+        Fore.MAGENTA: 5,  # Maps to curses color pair 5 (COLOR_MAGENTA on COLOR_BLACK)
+        Fore.CYAN: 6,     # Maps to curses color pair 6 (COLOR_CYAN on COLOR_BLACK)
+        Fore.WHITE: 7,    # Maps to curses color pair 7 (COLOR_WHITE on COLOR_BLACK)
+        Fore.RESET: 0     # Default/reset color (no color pair applied)
+    }
+    # Return the corresponding color pair or default to 0 if not found
+    return color_map.get(fore_color, 2)
 
 
 def log_message(message, window=None,color=2,ShowTime=None):
     """Logs a message using curses or standard print."""
+
+    color = get_curses_color_pair(color)
 
     if ShowTime:
        message = f"{str(datetime.now())[11:19]:<8} - {message}"
