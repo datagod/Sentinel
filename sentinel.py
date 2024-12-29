@@ -683,7 +683,8 @@ def get_curses_color_pair(fore_color):
 def log_message(message, window=None,color=2,ShowTime=None):
     """Logs a message using curses or standard print."""
 
-    color = get_curses_color_pair(color)
+    if isinstance(color, str):
+      color = get_curses_color_pair(color)
 
     if ShowTime:
        message = f"{str(datetime.now())[11:19]:<8} - {message}"
@@ -1433,16 +1434,16 @@ def ProduceReport_TopDevices(TheCount) :
 
       if curses_enabled:
         log_message(" ",DetailsWindow)
-        log_message("TOP DEVICES REPORT",DetailsWindow,color=Fore.LIGHTGREEN_EX)
-        log_message(title,DetailsWindow)
+        log_message("TOP DEVICES REPORT",DetailsWindow,color=Fore.YELLOW)
+        log_message(title,DetailsWindow,color=Fore.YELLOW)
       else:
         console_region.print_large(f"TOP {TheCount} DEVICES TODAY                                   ", font="pagga", color=Fore.YELLOW, start_row=console_region.current_row,  start_col=1)
         console_region.current_row += 3
-        console_region.region_print_line(title,regular_color=Fore.LIGHTYELLOW_EX)
+        console_region.region_print_line(title,regular_color=Fore.YELLOW)
   
       for friendly_name, source_mac, device_type, ssid, frequency in result:
         output = (f"{friendly_name[:20]:<20} {source_mac:<17} {device_type[:30]:<30} {ssid[:25]:<25}{frequency:>10}")    
-        log_message(output,DetailsWindow,color=Fore.LIGHTGREEN_EX)
+        log_message(output,DetailsWindow,color=Fore.YELLOW)
 
       log_message(" ",DetailsWindow)
 
@@ -1497,8 +1498,8 @@ def ProduceReport_TopMobile(TheCount) :
 
       if curses_enabled:
         log_message(" ",DetailsWindow)
-        log_message("TOP MOBILE REPORT",DetailsWindow)
-        log_message(title,DetailsWindow)
+        log_message("TOP MOBILE REPORT",DetailsWindow,color=Fore.YELLOW)
+        log_message(title,DetailsWindow,color=Fore.YELLOW)
       else:
         console_region.print_large(f"TOP {TheCount} MOBILE DEVICES TODAY                            ", font="pagga", color=Fore.YELLOW, start_row=console_region.current_row,  start_col=1)
         console_region.current_row += 3
@@ -1506,7 +1507,7 @@ def ProduceReport_TopMobile(TheCount) :
   
       for friendly_name, source_mac, device_type, ssid, frequency in result:
         output = (f"{friendly_name[:20]:<20} {source_mac:<17} {device_type[:30]:<30} {ssid[:25]:<25}{frequency:>10}")    
-        log_message(output,DetailsWindow)
+        log_message(output,DetailsWindow,color=Fore.YELLOW)
 
       log_message(" ",DetailsWindow)
 
@@ -1573,7 +1574,7 @@ def ProduceReport_RecentIntruders(TheCount) :
       if curses_enabled:
         log_message(" ",DetailsWindow)
         log_message("RECENT INTRUDERS REPORT",DetailsWindow)
-        log_message(title,DetailsWindow)
+        log_message(title,DetailsWindow,color=Fore.YELLOW)
       else:
         console_region.print_large(f"TOP {TheCount} RECENT INTRUDERS TODAY               ", font="pagga", color=Fore.YELLOW, start_row=console_region.current_row,  start_col=1)
         console_region.current_row += 3
@@ -1581,7 +1582,7 @@ def ProduceReport_RecentIntruders(TheCount) :
   
       for source_mac, device_type, ssid, frequency in result:
         output = (f"{source_mac:<17} {device_type[:30]:<30} {ssid[:25]:<25}{frequency:>10}")    
-        log_message(output,DetailsWindow)
+        log_message(output,DetailsWindow,color=Fore.YELLOW)
 
       log_message(" ",DetailsWindow)
 
