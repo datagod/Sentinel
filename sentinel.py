@@ -668,15 +668,15 @@ def ProcessPacketInfo():
 
 
 
-def log_message(message, window=None):
+def log_message(message, window=None,color=None):
     """Logs a message using curses or standard print."""
 
     try:
         if curses_enabled:
             if window:
-              window.QueuePrint(message)
+              window.QueuePrint(message,Color=color)
             else:        
-              InfoWindow.QueuePrint(message)
+              InfoWindow.QueuePrint(message,Color=color)
         else:
             console_region.region_print_line(message)
     except Exception as e:
@@ -1415,7 +1415,7 @@ def ProduceReport_TopDevices(TheCount) :
 
       if curses_enabled:
         log_message(" ",DetailsWindow)
-        log_message("TOP DEVICES REPORT",DetailsWindow)
+        log_message("TOP DEVICES REPORT",DetailsWindow,color=Fore.LIGHTGREEN_EX)
         log_message(title,DetailsWindow)
       else:
         console_region.print_large(f"TOP {TheCount} DEVICES TODAY                                   ", font="pagga", color=Fore.YELLOW, start_row=console_region.current_row,  start_col=1)
@@ -1424,7 +1424,7 @@ def ProduceReport_TopDevices(TheCount) :
   
       for friendly_name, source_mac, device_type, ssid, frequency in result:
         output = (f"{friendly_name[:20]:<20} {source_mac:<17} {device_type[:30]:<30} {ssid[:25]:<25}{frequency:>10}")    
-        log_message(output,DetailsWindow)
+        log_message(output,DetailsWindow,color=Fore.LIGHTGREEN_EX)
 
       log_message(" ",DetailsWindow)
 
@@ -2765,16 +2765,18 @@ def main(stdscr):
     if curses_enabled == False:
       console_region.current_row = 20
 
-    log_message('Starting thread: process_PacketQueue')
+
+    # Create and start the DB processing thread
+    DB_processing_thread = threading.Thread(target=process_DBQueue, name="DBProcessingThread")
+    DB_processing_thread.daemon = True  # Set as daemon so it exits with the main program
+    DB_processing_thread.start()
+    log_message(f"{datetime.now().replace(microsecond=0)} Starting thread: process_DBQueue")
+
+    log_message(f"{datetime.now().replace(microsecond=0)} Starting thread: process_PacketQueue")
     packet_processing_thread = threading.Thread(target=process_PacketQueue, name="PacketProcessingThread")
     packet_processing_thread.daemon = True  # Set as daemon so it exits with the main program
     packet_processing_thread.start()
 
-    # Create and start the DB processing thread
-    log_message('Starting thread: process_DBQueue')
-    DB_processing_thread = threading.Thread(target=process_DBQueue, name="DBProcessingThread")
-    DB_processing_thread.daemon = True  # Set as daemon so it exits with the main program
-    DB_processing_thread.start()
 
     # Start the channel hopper thread
     log_message('Starting thread: channel_hopper')
