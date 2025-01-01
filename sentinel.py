@@ -74,10 +74,25 @@ from device_type_dict import device_type_dict
 oui_dict       = None
 vendor_cache   = {}
 write_lock     = threading.Lock()
-gps_lock       = threading.Lock()  # New lock for GPS synchronization
-gps_stop_event = threading.Event()
 profile_lock   = threading.Lock()
 profiling_data = {}                # Dictionary to store function run times
+
+
+#GPS Structures
+gps_lock       = threading.Lock()  # New lock for GPS synchronization
+gps_stop_event = threading.Event()
+gps_thread     = None
+gps_data = {
+    "latitude": None,
+    "longitude": None,
+    "altitude": None,
+    "speed": None,
+    "satellites": None,
+    "timestamp": None
+}
+
+
+
 
 #Parameters
 curses_enabled          = True
@@ -257,6 +272,16 @@ def ProcessKeypress(Key):
 
 
   #----------------------------
+  #-- GPS Status
+  #----------------------------
+  elif Key == 'g':
+    log_message(" ")
+    log_message("GPS Status Report")
+    display_gps_info()
+    log_message(" ")
+
+
+  #----------------------------
   #-- Restart
   #----------------------------
   elif (Key == "R"):
@@ -358,6 +383,18 @@ def get_keypress():
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 def DisplayHeader():
     global HeaderWindow
     global PacketWindow
@@ -375,6 +412,7 @@ def DisplayHeader():
     global DBQueue
     global PacketsSavedToDBCount
     global gps_lock
+    global gps_data
     global console_region
     global show_friendly
     global ProcessedPacket
@@ -404,6 +442,9 @@ def DisplayHeader():
         filler       = "            "
         
 
+        
+
+
         # Define the HeaderLines dictionary with clean formatting
         HeaderLines = {
                 1: f"Packets Processed:   {packet_count:<12}"           + filler + f"ShowFriendly: {friendly:<5}",
@@ -415,8 +456,9 @@ def DisplayHeader():
                 7: f"Friendly Devices:    {friendly_key_count:<12}"     + filler,
                 8: f"Total Devices:       {key_count:<12}"              + filler,
                 9: f"Time:                {time_display}"               + filler,
-               10: f"Longitude:           {longitude}"                  + filler,
-               11: f"Latitude:            {latitude}"                   + filler
+               10: f"GPS Time:            {gps_data['timestamp']}"      + filler,
+               11: f"Longitude:           {longitude}"                  + filler,
+               12: f"Latitude:            {latitude}"                   + filler
 
         }
 
@@ -1158,30 +1200,108 @@ def extract_signal_strength(packet):
     return 'UNKNOWN'
 
 
-@profile_decorator
-def get_current_gps_coordinates():
-    global latitude
-    global longitude
-    global gps_lock
-    global gps_stop_event
 
-    # Set up the GPS session
-    gpsd = gps.gps(mode=gps.WATCH_ENABLE)  # Enable the streaming mode for GPS data
+
+
+
+
+
+
+
+
+def display_gps_info():
+    """
+    Displays information about the GPS thread and connection.
+    """
+    global gps_thread, gps_lock, gps_data, gps_stop_event
+    
+
+
+    gps_info = []
+
+    # Check thread status
+    if 'gps_thread' in globals() and gps_thread.is_alive():
+        gps_info.append("GPS Thread Status: RUNNING")
+    else:
+        gps_info.append("GPS Thread Status: NOT DEFINED OR STOPPED")
+
+    # Fetch GPS Fix Data
+    with gps_lock:
+        if gps_data.get("latitude") is not None and gps_data.get("longitude") is not None:
+            gps_info.append(f"GPS Fix: Latitude {gps_data['latitude']:.6f}, Longitude {gps_data['longitude']:.6f}")
+
+        else:
+            gps_info.append("GPS Fix: No valid fix available")
+
+        # Display count of satellites in view
+        satellites = gps_data.get('satellites', 0)
+        gps_info.append(f"Satellites: {satellites}")
+
+        # Display altitude
+        altitude = gps_data.get('altitude', 0)
+        gps_info.append(f"Altitude:   {altitude}")
+
+        # Display speed
+        speed = gps_data.get('speed', 0)
+        gps_info.append(f"Speed:      {speed}")
+
+
+    # Check for stop signal
+    if gps_stop_event.is_set():
+        gps_info.append("GPS Thread is stopping...")
+
+    # Display or log the GPS info
+    if curses_enabled:
+        for line in gps_info:
+            InfoWindow.QueuePrint(line, Color=3)
+    else:
+        for line in gps_info:
+            log_message(Fore.YELLOW + line)
+
+
+
+
+
+def get_detailed_gps_coordinates():
+    """
+    Continuously fetch detailed GPS information and update the shared gps_data dictionary.
+    """
+    global gps_data, gps_lock, gps_stop_event, latitude, longitude, current_latitude, current_longitude
+
+
+
+    # Initialize the GPS session
+    gpsd = gps.gps(mode=gps.WATCH_ENABLE)
+    gpsd.stream(gps.WATCH_ENABLE | gps.WATCH_NEWSTYLE)
 
     try:
-        # Wait until we receive GPS data with valid lat and lon
         while not gps_stop_event.is_set():
-            gpsd.next()  # Get the next set of GPS data
-            if gpsd.fix.mode >= 2:  # Ensure we have a valid GPS fix (2D or 3D)
-                with gps_lock:  # Acquire lock before updating coordinates
-                    latitude = str(gpsd.fix.latitude)
-                    longitude = str(gpsd.fix.longitude)
-                
-                # Add a delay between GPS reads to avoid busy waiting
-                time.sleep(gps_interval)  # Adjust as needed for acceptable update frequency
+            gps_report = gpsd.next()
+
+            with gps_lock:
+                    latitude  = getattr(gps_report, 'lat', None)
+                    longitude = getattr(gps_report, 'lon', None)
+                    gps_data["latitude"]   = getattr(gps_report, 'lat', None)
+                    gps_data["longitude"]  = getattr(gps_report, 'lon', None)
+                    gps_data["altitude"]   = getattr(gps_report, 'alt', None)
+                    gps_data["speed"]      = getattr(gps_report, 'speed', None)
+                    gps_data["timestamp"]  = getattr(gps_report, 'time', None)
+                    gps_data["satellites"] = len(gps_report.satellites) if hasattr(gps_report, 'satellites') else None
+
+            if latitude == None or longitude == None or latitude == 0.0 or longitude == 0.0:
+                latitude  = current_latitude
+                longitude = current_longitude
+            else:
+                current_latitude  = latitude
+                current_longitude = longitude
+
+
+
+            time.sleep(2)  # Adjust update frequency as needed
+
     except Exception as e:
-        InfoWindow.QueuePrint(f"Error in GPS Thread: {e}")
-        
+        log_message(f"Error in GPS thread: {e}")
+
 
 
 
@@ -2678,7 +2798,8 @@ def main(stdscr):
     global console_height
     global last_time
     global ProcessedPacket
-    
+    global gps_thread
+    global gps_data
        
 
     #--------------------------------------
@@ -2810,7 +2931,7 @@ def main(stdscr):
 
     # Start GPS thread
     log_message('Starting thread: gps_thread',ShowTime=True)
-    gps_thread = threading.Thread(target=get_current_gps_coordinates, name="GPSThread")
+    gps_thread = threading.Thread(target=get_detailed_gps_coordinates, name="GPSThread")
     gps_thread.daemon = True  # Allows the program to exit even if the thread is running
     gps_thread.start()
 
