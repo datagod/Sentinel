@@ -64,9 +64,26 @@ try:
                 select p.*, t.*
                   from Packet          p
                   left join PacketTag pt on pt.PacketID = p.ID
-                  left join Tag        t on t.ID     = pt.TagID
-            );
+                  join Tag             t on t.ID     = pt.TagID
+            ;
         ''',
+        "vPacket": '''
+
+CREATE VIEW IF NOT EXISTS vPacketWithTags AS
+SELECT 
+    p.*,
+    GROUP_CONCAT(t.tag, ', ') AS Tag
+FROM 
+    Packet p
+LEFT JOIN 
+    PacketTag pt ON pt.PacketID = p.id
+LEFT JOIN 
+    Tag t ON t.id = pt.TagID
+GROUP BY 
+    p.id;
+''',
+
+
 
         "indexes": '''
       
@@ -83,7 +100,7 @@ try:
     # Execute each table creation query
     for table_name, query in table_queries.items():
         print(f"Command found: {table_name}")
-        if table_name == 'vPacket':
+        #if table_name in ('vPacket','PacketTag','Tag'):
             print("Executing command...")
             cursor.execute(query)
             print("done")

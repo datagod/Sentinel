@@ -15,12 +15,17 @@
             border-collapse: collapse;
             margin-bottom: 20px;
         }
+
+
         th, td {
             border: 1px solid #ccc;
             padding: 10px;
             text-align: left;
         }
         th {
+            position: sticky;
+            top: 0;
+            z-index: 1; /* Ensures the headers are above table content */
             background-color: #f8f9fa;
         }
         tr:nth-child(even) {
@@ -105,6 +110,7 @@
                     <td>
                         <form action="{{ url_for('add_tag') }}" method="post">
                             <input type="hidden" name="packet_id" value="{{ packet.id }}">
+                            <input type="hidden" name="SourceMAC" value="{{ packet.SourceMAC }}">
                             <input type="text" name="tag" placeholder="Enter tag" required>
                             <button type="submit">Add Tag</button>
                         </form>
