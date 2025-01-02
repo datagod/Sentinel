@@ -62,9 +62,9 @@ try:
         "vPacket": '''
             CREATE view IF NOT EXISTS vPacket as
                 select p.*, t.*
-                  from Packet     p
-                  join PacketTag pt on pt.PacketID = p.ID
-                  join Tag        t on t.ID     = pt.TagID
+                  from Packet          p
+                  left join PacketTag pt on pt.PacketID = p.ID
+                  left join Tag        t on t.ID     = pt.TagID
             );
         ''',
 

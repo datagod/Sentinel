@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Packet Manager</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f4f4f9;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        th, td {
+            border: 1px solid #ccc;
+            padding: 10px;
+            text-align: left;
+        }
+        th {
+            background-color: #f8f9fa;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        form {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        input[type="text"], input[type="date"] {
+            padding: 5px;
+            font-size: 14px;
+            width: 200px;
+        }
+        button {
+            padding: 5px 10px;
+            font-size: 14px;
+            cursor: pointer;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 3px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .table-container {
+            max-height: 800px;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        .filter-container {
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Packet Manager</h1>
+
+    <div class="filter-container">
+        <form action="/" method="get">
+            <label for="start_date">Start Date:</label>
+            <input type="date" id="start_date" name="start_date" value="{{ start_date }}">
+            <label for="end_date">End Date:</label>
+            <input type="date" id="end_date" name="end_date" value="{{ end_date }}">
+            <button type="submit">Filter</button>
+        </form>
+    </div>
+
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Capture Date</th>
+                    <th>Friendly Name</th>
+                    <th>SourceMAC</th>
+                    <th>Packet Type</th>
+                    <th>Device Type</th>
+                    <th>SSID</th>
+                    <th>Latitude</th>
+                    <th>Longitude</th>
+                    <th>Tag</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for packet in packets %}
+                <tr>
+                    <td>{{ packet.id }}</td>
+                    <td>{{ packet.CaptureDate }}</td>
+                    <td>{{ packet.FriendlyName }}</td>
+                    <td>{{ packet.SourceMAC }}</td>
+                    <td>{{ packet.PacketType }}</td>
+                    <td>{{ packet.DeviceType }}</td>
+                    <td>{{ packet.ssid }}</td>
+                    <td>{{ packet.latitude }}</td>
+                    <td>{{ packet.longitude }}</td>
+                    <td>{{ packet.tag }}</td>
+                    <td>
+                        <form action="{{ url_for('add_tag') }}" method="post">
+                            <input type="hidden" name="packet_id" value="{{ packet.id }}">
+                            <input type="text" name="tag" placeholder="Enter tag" required>
+                            <button type="submit">Add Tag</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>
