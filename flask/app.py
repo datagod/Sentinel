@@ -121,8 +121,9 @@ def map_view():
     SELECT Latitude, Longitude, SourceMAC, CaptureDate 
     FROM Packet
     WHERE Latitude IS NOT NULL AND Longitude IS NOT NULL
+    and longitude <> -75.8708888
     ORDER BY CaptureDate DESC
-    LIMIT 100
+    LIMIT 2000
     '''
     try:
         packets = conn.execute(query).fetchall()
