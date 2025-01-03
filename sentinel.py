@@ -2787,8 +2787,8 @@ def main(stdscr):
     global PacketDB
     global DBConnection
     global DBReports
-    global Latitude
-    global Longitude
+    global latitude
+    global longitude
     global current_latitude
     global current_longitude
     global gps_stop_event
