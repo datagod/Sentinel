@@ -1798,8 +1798,8 @@ def save_DB_Packet(DBPacket):
             DBPacket.get('SSID'),
             DBPacket.get('Band'),
             DBPacket.get('Channel'),
-            DBPacket.get('Longitude'),
             DBPacket.get('Latitude'),
+            DBPacket.get('Longitude'),
             DBPacket.get('Signal')
         ))
 
