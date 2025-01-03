@@ -69,7 +69,7 @@ try:
         ''',
         "vPacket": '''
 
-CREATE VIEW IF NOT EXISTS vPacketWithTags AS
+CREATE VIEW IF NOT EXISTS vPacketTags AS
 SELECT 
     p.*,
     GROUP_CONCAT(t.tag, ', ') AS Tag
