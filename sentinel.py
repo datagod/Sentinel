@@ -76,7 +76,7 @@ vendor_cache   = {}
 write_lock     = threading.Lock()
 profile_lock   = threading.Lock()
 profiling_data = {}                # Dictionary to store function run times
-
+HeaderLines    = {}
 
 #GPS Structures
 gps_lock       = threading.Lock()  # New lock for GPS synchronization
@@ -134,6 +134,7 @@ keyboard_interval = 0.5    #Interval in seconds to check for keypress
 
 #Windows variables
 HeaderWindow  = None
+StatusWindow  = None
 InfoWindow    = None
 PacketWindow  = None
 DetailsWindow = None
@@ -188,10 +189,11 @@ def clear_screen_ASCII():
 #------------------------------------------------------------------------------
 
 
-def ProcessKeypress(Key):
+def ProcessKeypress(Key,stdscr):
   global show_friendly
   global show_routers
   global console_region
+  global StatusWindow
   
   # q = quit
   # t = restart in textwindow mode
@@ -275,10 +277,10 @@ def ProcessKeypress(Key):
   #-- GPS Status
   #----------------------------
   elif Key == 'g':
-    log_message(" ")
-    log_message("GPS Status Report")
+    StatusWindow.CurrentRow = 1
+    log_message("GPS Status Report",StatusWindow)
     display_gps_info()
-    log_message(" ")
+    log_message(" ",StatusWindow)
 
 
   #----------------------------
@@ -347,17 +349,22 @@ def ProcessKeypress(Key):
   #-- Clear the console
   #-----------------------------------
   elif (Key == 'c'):
-    os.system("stty sane")
-    print(f"\033[1;1H", end="",flush=True)
-    print("\033[0J", end="")
-    print(f"\033[0;0H", end="", flush=True)  # Explicitly set cursor to row 0, column 0
 
-    if not curses_enabled:
+    if curses_enabled:
+        print(f"\033[{1};1H", end="",flush=True)
+        textwindows.RefreshAllWindows()
+        HeaderWindow.set_fixed_line_all(HeaderLines,Color=5)
+
+    else:
+        os.system("stty sane")
+        print(f"\033[1;1H", end="",flush=True)
+        print("\033[0J", end="")
+        print(f"\033[0;0H", end="", flush=True)  # Explicitly set cursor to row 0, column 0
         print(Fore.RED,end="", flush=True)
         print(pyfiglet.figlet_format("    SENTINEL PASSIVE SURVEILLANCE   ",font='pagga',justify='left',width=console_width))
         print(Fore.GREEN,end="", flush=True)
         console_region.current_row = console_region.start_row +1
-        console_region.print_line(text=console_region_title,line=console_region.title_row)        
+        console_region.print_line(text=console_region_title,line=console_region.title_row)
 
     DisplayHeader()
 
@@ -389,7 +396,7 @@ def get_keypress():
 
 
 
-
+    
 
 
 
@@ -397,10 +404,12 @@ def get_keypress():
 
 def DisplayHeader():
     global HeaderWindow
+    global StatusWindow
     global PacketWindow
     global InfoWindow
     global DetailsWindow
     global RawWindow
+    global HeaderLines
     global oui_dict
     global friendly_devices_dict
     global current_channel_info
@@ -483,6 +492,7 @@ def DisplayHeader():
 
 def ProcessPacketInfo():
     global HeaderWindow
+    global StatusWindow
     global PacketWindow
     global InfoWindow
     global DetailsWindow
@@ -1253,7 +1263,7 @@ def display_gps_info():
     # Display or log the GPS info
     if curses_enabled:
         for line in gps_info:
-            InfoWindow.QueuePrint(line, Color=3)
+            StatusWindow.QueuePrint(line, Color=3)
     else:
         for line in gps_info:
             log_message(Fore.YELLOW + line)
@@ -1945,6 +1955,7 @@ def process_DBQueue():
 def process_packet(packet):
     
     global HeaderWindow
+    global StatusWindow
     global PacketWindow
     global InfoWindow
     global DetailsWindow
@@ -2793,6 +2804,7 @@ def periodic_thread_logging(interval=60):
 # Integrate channel hopping in the main function
 def main(stdscr):
     global HeaderWindow
+    global StatusWindow
     global PacketWindow
     global InfoWindow
     global DetailsWindow
@@ -2854,6 +2866,8 @@ def main(stdscr):
         ]
     
         HeaderWindow  = textwindows.HeaderWindow(name='HeaderWindow', title='Header',    rows= HeaderHeight, columns=window_width *2, y1=0, x1=0,                                 ShowBorder='Y', BorderColor=2, TitleColor=3,fixed_lines=fixed_lines)
+        StatusWindow  = textwindows.TextWindow  (name='StatusWindow', title='Header',    rows= HeaderHeight, columns=window_width *3, y1=0, x1=window_width *2  + 1,              ShowBorder='Y', BorderColor=2, TitleColor=3)
+
         DetailsWindow = textwindows.TextWindow  (name='DetailsWindow',title='Details',   rows=max_y - 1,     columns=window_width *3, y1=(HeaderHeight), x1=0,                    ShowBorder='Y', BorderColor=2, TitleColor=2)
         InfoWindow    = textwindows.TextWindow  (name='InfoWindow',   title='Extra Info',rows=max_y - 1,     columns=window_width *2, y1=(HeaderHeight), x1=window_width * 3 + 1, ShowBorder='Y', BorderColor=2, TitleColor=2)
  
@@ -2861,18 +2875,27 @@ def main(stdscr):
         #PacketWindow  = textwindows.TextWindow  (name='PacketWindow', title='Packets',   rows=max_y - 1,     columns=window_width,   y1=(HeaderHeight), x1=window_width * 2,     ShowBorder='Y', BorderColor=2, TitleColor=2)
         #RawWindow     = textwindows.TextWindow  (name='RawWindow',    title='Raw Data',  rows=max_y - 1,     columns=window_width,   y1=(HeaderHeight), x1=window_width * 4 + 1, ShowBorder='Y', BorderColor=2, TitleColor=2)
 
+        
+        console_width            = shutil.get_terminal_size().columns
+        console_height           = shutil.get_terminal_size().lines
 
+
+        
+        
         # Refresh windows for initial setup
         HeaderWindow.DisplayTitle('Sentinel 1.0')
         HeaderWindow.refresh()
         
         #PacketWindow.DisplayTitle('Packet Info')
         #PacketWindow.refresh()
-        
+
+        StatusWindow.DisplayTitle('Status')
+        StatusWindow.refresh()
+
+
         InfoWindow.DisplayTitle('Information')
         console_width            = shutil.get_terminal_size().columns
         console_height           = shutil.get_terminal_size().lines
-
         InfoWindow.refresh()
         
         FormattedString = format_into_columns(DetailsWindow.columns, 'Name/Type','mac','DeviceBrand', 'SSID','Band/Channel/Signal')
@@ -2881,7 +2904,7 @@ def main(stdscr):
 
         #RawWindow.DisplayTitle('Raw Data')
         #RawWindow.refresh()
-    
+
 
         log_message(f"Height x Width {ScreenHeight}x{ScreenWidth}")    
 
@@ -2981,7 +3004,7 @@ def main(stdscr):
 
           if current_time - last_time >= keyboard_interval:
             Key = get_keypress()
-            ProcessKeypress(Key)
+            ProcessKeypress(Key,stdscr)
             last_time = current_time
 
 

@@ -104,6 +104,8 @@ import queue
 import os
 
 
+# Global 
+GlobalWindowRegistry = {}
 TheQueue = queue.Queue()
 
 class BaseTextInterface:
@@ -112,6 +114,8 @@ class BaseTextInterface:
         # Setup logging once
         logging.basicConfig(filename=f'{self.name}.log', level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
+        # Register window with the global registry
+        GlobalWindowRegistry[name] = self
 
 
 
@@ -143,19 +147,17 @@ class BaseTextInterface:
         # Optional delay to give time for users to read the error (if used interactively)
         #time.sleep(5)
 
-
-
     def log_debug(self, message):
         logging.debug(message)
 
 
 
 class TextWindow(BaseTextInterface):
-   # Class-level dictionary to store instances
-    windows = {}
-
-
     def __init__(self, name, title, rows, columns, y1, x1, ShowBorder, BorderColor, TitleColor):
+
+        # Delegate global registration and logging setup to BaseTextInterface
+        super().__init__(name)
+
         max_y, max_x = curses.LINES - 1, curses.COLS - 1
         self.rows = min(rows, max_y - y1)
         self.columns = min(columns, max_x - x1)
@@ -171,8 +173,9 @@ class TextWindow(BaseTextInterface):
         self.BorderColor = BorderColor  # pre-defined text colors 1-7
         self.TitleColor = TitleColor
 
-        # Add this instance to the class-level dictionary
-        TextWindow.windows[name] = self
+        # Register the instance in the global registry
+        GlobalWindowRegistry[name] = self
+        
 
         try:
             self.window = curses.newwin(self.rows, self.columns, self.y1, self.x1)
@@ -205,6 +208,10 @@ class TextWindow(BaseTextInterface):
             self.CurrentRow = 0
             self.StartColumn = 0
 
+    def RefreshBorder(self):
+        self.window.attron(curses.color_pair(self.BorderColor))
+        self.window.border()
+        self.window.attroff(curses.color_pair(self.BorderColor))
 
 
     def QueuePrint(self, message, Color=2, TimeStamp=False, BoldLine=True,row=-1):
@@ -449,7 +456,7 @@ def ProcessQueue():
             column = item.get("column", 0)
             Bold = item.get("BoldLine", False)
 
-            window = TextWindow.windows.get(window_name)
+            window = GlobalWindowRegistry.get(window_name)
             if window:
                 if row > -1:
                     window._apply_line_update(row, column, message, Color, Bold)
@@ -542,8 +549,6 @@ class HeaderWindow(TextWindow):
         """
         super().__init__(name, title, rows, columns, y1, x1, ShowBorder, BorderColor, TitleColor)
         
-        # Ensure HeaderWindow instances are registered in the windows dictionary
-        TextWindow.windows[name] = self
 
         # Convert to dictionary if fixed_lines is a list
         if isinstance(fixed_lines, list):
@@ -569,6 +574,33 @@ class HeaderWindow(TextWindow):
                 raise ValueError(f"Row {row} is out of bounds for the HeaderWindow.")
 
         
+
+    def update_fixed_line_all(self, row, text, Color=None):
+        """
+        Update all lines, even if they didn't change
+
+        Args:
+            row (int): The row number to update.
+            text (str): The new text for the fixed line.
+            Color (str): Optional; color to use for the line. Defaults to TitleColor if None.
+        """
+        if row not in self.fixed_lines:
+            raise ValueError(f"Row {row} is not defined as a fixed header line.")
+
+        self.current_lines[row] = text  # Update the current state
+        self.UpdateLine(row, 1, text, Color=Color if Color else self.TitleColor, Bold=True)
+
+
+    def set_fixed_line_all(self, updates, Color=None):
+        """
+        Update multiple fixed lines at once
+
+        Args:
+            updates (dict): A dictionary of updates {row: new_text}.
+        """
+        for row, text in updates.items():
+            self.update_fixed_line_all(row, text, Color)
+
 
     def update_fixed_line(self, row, text, Color=None):
         """
@@ -717,6 +749,34 @@ def initialize_curses(stdscr):
     curses.init_pair(6, curses.COLOR_CYAN, curses.COLOR_BLACK)
     curses.init_pair(7, curses.COLOR_WHITE, curses.COLOR_BLACK)
 
+
+
+
+def RefreshAllWindows():
+    """
+    Refresh the borders, titles, and contents of all active TextWindow instances.
+    """
+
+    #Empty the print queue
+    TheQueue = queue.Queue()
+
+    try:
+        logging.info("Refreshing all windows...")
+
+        for window_name, window in GlobalWindowRegistry.items():
+            if isinstance(window, TextWindow):  # Ensure the object is a valid TextWindow
+                logging.debug(f"Refreshing window: {window_name}")
+    
+                # Clear and refresh the window
+                window.Clear()
+                if window.ShowBorder == 'Y':
+                    window.RefreshBorder()
+                window.DisplayTitle()
+                window.refresh()
+            else:
+                logging.warning(f"Object in registry is not a TextWindow: {window_name}")
+    except Exception as e:
+        logging.error(f"Error in RefreshAllWindows: {e}")
 
 
 
