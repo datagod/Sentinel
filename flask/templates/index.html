@@ -15,8 +15,6 @@
             border-collapse: collapse;
             margin-bottom: 20px;
         }
-
-
         th, td {
             border: 1px solid #ccc;
             padding: 10px;
@@ -61,6 +59,26 @@
         }
         .filter-container {
             margin-bottom: 20px;
+        }
+        .pagination {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 20px;
+        }
+        .pagination a {
+            text-decoration: none;
+            padding: 5px 10px;
+            font-size: 14px;
+            background-color: #007bff;
+            color: white;
+            border-radius: 3px;
+        }
+        .pagination a:hover {
+            background-color: #0056b3;
+        }
+        .pagination a.disabled {
+            background-color: #ccc;
+            pointer-events: none;
         }
     </style>
 </head>
@@ -119,6 +137,15 @@
                 {% endfor %}
             </tbody>
         </table>
+    </div>
+
+    <div class="pagination">
+        {% if page > 1 %}
+        <a href="{{ url_for('home', start_date=start_date, end_date=end_date, page=page-1) }}">Previous 500</a>
+        {% else %}
+        <a class="disabled">Previous 500</a>
+        {% endif %}
+        <a href="{{ url_for('home', start_date=start_date, end_date=end_date, page=page+1) }}">Next 500</a>
     </div>
 </body>
 </html>

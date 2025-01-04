@@ -2,6 +2,7 @@
 from flask import Flask, render_template, request, redirect, url_for, render_template_string
 import sqlite3
 import folium
+from colorama import Fore, Back, Style, init
 
 
 
@@ -16,47 +17,56 @@ def get_db_connection():
 
 @app.route('/')
 def home():
-    print("-------------------------------------------------------")
+    print(Fore.GREEN,"-------------------------------------------------------")
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
+    page = request.args.get('page', 1, type=int)  # Default to page 1
+    records_per_page = 500
+    offset = (page - 1) * records_per_page
 
     conn = get_db_connection()
     params = []
     query = 'SELECT * FROM vPacketTags WHERE 1=1'
 
     if start_date and end_date:
-        # Append times to the date strings
         start_datetime = f"{start_date} 00:00:00"
-        end_datetime = f"{end_date} 23:59:59"
+        end_datetime = f"{end_date} 15:59:59"
         query += ' AND CaptureDate BETWEEN ? AND ?'
         params.extend([start_datetime, end_datetime])
 
-
-    #query += " and ssid not like '%empire%'"
-    #query += " and FriendlyName like '%amcrest%'"
-    #query += " and ssid <> ''"
-    #query += " and tag is null"
-    #query += " and tag not in ('home','phone','camera')"
-    query += ' ORDER BY CaptureDate desc LIMIT 1000'
+    query += ' ORDER BY CaptureDate DESC LIMIT ? OFFSET ?'
+    params.extend([records_per_page, offset])
 
     try:
         print(f"Execute: {query}")
         packets = conn.execute(query, params).fetchall()
-        print(f"Rows affected: {conn.total_changes}")
+        print(f"Rows affected: {len(packets)}")
     except Exception as e:
-        # Log the error and optionally display it
         error_message = f"SQLite error: {e.args[0]}"
-        print(error_message)  # Log to console (or use a logging library)
+        print(Fore.RED,error_message)
         return render_template('error.html', error_message=error_message), 500
     finally:
         conn.close()
 
     print("-------------------------------------------------------")
-    return render_template('index.html', packets=packets, start_date=start_date, end_date=end_date)
+    return render_template(
+        'index.html', 
+        packets=packets, 
+        start_date=start_date, 
+        end_date=end_date, 
+        page=page  # Pass the page variable here
+    )
+
+
+
+
+
+
+
 
 @app.route('/add_tag', methods=['POST'])
 def add_tag():
-    print("-------------------------------------------------------")
+    print(Fore.YELLOW,"-------------------------------------------------------")
     SourceMAC = request.form['SourceMAC']
     tag = request.form['tag'].strip().lower()
 
@@ -98,7 +108,7 @@ def add_tag():
         # Rollback on error and log details
         conn.rollback()
         error_message = "An error occurred while processing your request."
-        print(f"SQLite error: {e.args[0]}")  # Replace with logging in production
+        print(Fore.RED,f"SQLite error: {e.args[0]}")  # Replace with logging in production
         return render_template('error.html', error_message=error_message), 500
 
     finally:
@@ -121,9 +131,8 @@ def map_view():
     SELECT Latitude, Longitude, SourceMAC, CaptureDate 
     FROM Packet
     WHERE Latitude IS NOT NULL AND Longitude IS NOT NULL
-    and longitude <> -75.8708888
     ORDER BY CaptureDate DESC
-    LIMIT 500
+    LIMIT 2000
     '''
     try:
         packets = conn.execute(query).fetchall()

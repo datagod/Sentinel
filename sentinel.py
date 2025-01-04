@@ -126,10 +126,10 @@ DeviceTypeDict          = defaultdict(set)
 hop_interval      = 1    #Interval in seconds between channel hops
 hop_modifier      = 5    #divides modifies the hop interval so we don't wait as long on 5Ghz channels 
 main_interval     = 1    #Interval in seconds for the main loop
-gps_interval      = 2    #Interval in seconds for the GPS check
-HeaderUpdateSpeed = 5
+gps_interval      = 1    #Interval in seconds for the GPS check
+HeaderUpdateSpeed = 25
 last_time         = time.time()  #time in seconds since the epoch
-keyboard_interval = 1    #Interval in seconds to check for keypress
+keyboard_interval = 0.5    #Interval in seconds to check for keypress
 
 
 #Windows variables
@@ -641,8 +641,8 @@ def ProcessPacketInfo():
         'SSID'        : ProcessedPacket.ssid,
         'Band'        : ProcessedPacket.band,
         'Channel'     : ProcessedPacket.channel,
-        'Latitude'    : current_latitude,
-        'Longitude'   : current_longitude,
+        'Latitude'    : ProcessedPacket.latitude,
+        'Longitude'   : ProcessedPacket.longitude,
         'Signal'      : ProcessedPacket.signal
         }
     
@@ -1835,6 +1835,17 @@ def save_DB_Packet(DBPacket):
 def packet_callback(packet):
     try:
 
+        # Add the current lat long to the raw packet so that if a lot of the get queued
+        # we will have the GPS location from when the packet was captured, not from
+        # when it was processed.
+        packet.latitude  = current_latitude
+        packet.longitude = current_longitude
+
+        #latitude     = str(current_latitude or "N/A"[:10])
+        #longitude    = str(current_longitude or "N/A"[:10])
+        
+        #log_message(f"packet queue lat/lon: {latitude} {longitude}")
+
         # Add packet to the queues for processing and saving by other threads
         PacketQueue.put(packet)
         
@@ -1977,7 +1988,7 @@ def process_packet(packet):
     #-------------------------------
 
     try:
-      
+            
       #Get all the information about the packet before displaying anything
       ProcessedPacket.PacketType     = identify_packet_type(packet)
       ProcessedPacket.packet_layers  = identify_packet_layers(packet)
@@ -1986,7 +1997,12 @@ def process_packet(packet):
       ProcessedPacket.packet_info    = packet.show(dump=True)
       ProcessedPacket.packet_details = get_packet_details_as_string(packet)
 
+      #pull the coordinates from the raw packet
+      ProcessedPacket.latitude = packet.latitude
+      ProcessedPacket.longitude = packet.longitude
       
+
+
 
       #There can be more than one source/destination depending on the type of packet
       #We will focus on WIFI packets for this project
