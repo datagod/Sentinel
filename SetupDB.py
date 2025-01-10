@@ -40,6 +40,20 @@ try:
                 Signal INTEGER
             );
         ''',
+        "MAC": '''
+            CREATE TABLE IF NOT EXISTS MAC (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                MAC TEXT,
+                Name TEXT,
+                FirstSeen DATETIME DEFAULT CURRENT_TIMESTAMP,
+                LastSeen DATETIME DEFAULT CURRENT_TIMESTAMP
+
+            );
+        ''',
+
+
+
+
         "RawPacket": '''
             CREATE TABLE IF NOT EXISTS RawPacket (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -56,6 +70,12 @@ try:
         "PacketTag": '''
             CREATE TABLE IF NOT EXISTS PacketTag (
                 PacketID INTEGER,
+                TagID INTEGER
+            );
+        ''',
+        "MACTag": '''
+            CREATE TABLE IF NOT EXISTS MACTag (
+                MACID INTEGER,
                 TagID INTEGER
             );
         ''',

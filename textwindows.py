@@ -757,9 +757,6 @@ def RefreshAllWindows():
     Refresh the borders, titles, and contents of all active TextWindow instances.
     """
 
-    #Empty the print queue
-    TheQueue = queue.Queue()
-
     try:
         logging.info("Refreshing all windows...")
 

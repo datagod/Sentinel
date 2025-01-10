@@ -3,6 +3,7 @@ from flask import Flask, render_template, request, redirect, url_for, render_tem
 import sqlite3
 import folium
 from colorama import Fore, Back, Style, init
+from datetime import datetime
 
 
 
@@ -21,8 +22,11 @@ def home():
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
     page = request.args.get('page', 1, type=int)  # Default to page 1
-    records_per_page = 500
+    records_per_page = 100
     offset = (page - 1) * records_per_page
+
+    if not end_date:
+        end_date = datetime.now()
 
     conn = get_db_connection()
     params = []
@@ -30,7 +34,7 @@ def home():
 
     if start_date and end_date:
         start_datetime = f"{start_date} 00:00:00"
-        end_datetime = f"{end_date} 15:59:59"
+        end_datetime = f"{end_date} 23:59:59"
         query += ' AND CaptureDate BETWEEN ? AND ?'
         params.extend([start_datetime, end_datetime])
 
@@ -38,7 +42,7 @@ def home():
     params.extend([records_per_page, offset])
 
     try:
-        print(f"Execute: {query}")
+        print(f"Execute: {query}",records_per_page, offset)
         packets = conn.execute(query, params).fetchall()
         print(f"Rows affected: {len(packets)}")
     except Exception as e:
@@ -77,14 +81,20 @@ def add_tag():
         conn.execute('BEGIN')
 
         # Check if the tag already exists
+        print(f"Checking to see if tag ({tag}) already exists")
         tag_row = conn.execute('SELECT id FROM Tag WHERE tag = ?', (tag,)).fetchone()
 
         if tag_row:
             tag_id = tag_row['id']
+
         else:
             # Insert the new tag and retrieve its ID
+            print ("Tag not found.  Creating new tag.")
             conn.execute('INSERT INTO Tag (tag) VALUES (?)', (tag,))
             tag_id = conn.execute('SELECT id FROM Tag WHERE tag = ?', (tag,)).fetchone()['id']
+
+        print (f"Tag ID: {tag_id}")
+
 
         # Insert into PacketTag only if the relationship does not exist
         sql = """
@@ -98,6 +108,7 @@ def add_tag():
             WHERE PacketTag.PacketID = Packet.ID AND PacketTag.TagID = ?
         )
         """
+        print(f"Executing: {sql}")
         conn.execute(sql, (tag_id, SourceMAC, tag_id))
         print(f"Rows affected: {conn.total_changes}")
 
@@ -166,8 +177,28 @@ def map_view():
 
 
 
+@app.route('/source_mac/<source_mac>')
+def source_mac_report(source_mac):
+    conn = get_db_connection()
+    query = '''
+    SELECT * FROM vPacketTags
+    WHERE SourceMAC = ?
+    ORDER BY CaptureDate DESC
+    LIMIT 500
+    '''
+    try:
+        packets = conn.execute(query, (source_mac,)).fetchall()
+    except Exception as e:
+        error_message = f"SQLite error: {e.args[0]}"
+        print(error_message)
+        return render_template('error.html', error_message=error_message), 500
+    finally:
+        conn.close()
+
+    return render_template('source_mac_report.html', packets=packets, source_mac=source_mac)
+
 
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', debug=True) 
+    app.run(host='192.168.0.197',port=5000, debug=True) 

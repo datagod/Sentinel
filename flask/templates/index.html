@@ -118,7 +118,9 @@
                     <td>{{ packet.id }}</td>
                     <td>{{ packet.CaptureDate }}</td>
                     <td>{{ packet.FriendlyName }}</td>
-                    <td>{{ packet.SourceMAC }}</td>
+
+                    <td><a href="{{ url_for('source_mac_report', source_mac=packet['SourceMAC']) }}">{{ packet['SourceMAC'] }}</a></td>
+                    
                     <td>{{ packet.PacketType }}</td>
                     <td>{{ packet.DeviceType }}</td>
                     <td>{{ packet.ssid }}</td>

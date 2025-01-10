@@ -58,7 +58,8 @@ import pyfiglet
 import shutil
 import pprint
 from typing import List, Tuple
-
+import pytz
+from tzlocal import get_localzone
 
 from scapy.all import *
 from scapy.layers.l2 import Dot3, Dot1Q, Ether, ARP
@@ -116,6 +117,7 @@ latitude                = None
 longitude               = None
 current_latitude        = None
 current_longitude       = None
+current_gpstime         = None
 ProcessedPacket         = None
 MobileCount             = 0
 RouterCount             = 0
@@ -153,6 +155,10 @@ console_stop_row         = console_height
 console_header_start_row = 4
 console_region_title = "Time     Friendly         PacketType     DeviceType      SourceMac         SourceVendor         SSID            BandSignal"
 
+
+#Time Zones
+utc_zone   = pytz.utc
+local_zone = get_localzone()
 
 
       
@@ -277,10 +283,15 @@ def ProcessKeypress(Key,stdscr):
   #-- GPS Status
   #----------------------------
   elif Key == 'g':
-    StatusWindow.CurrentRow = 1
-    log_message("GPS Status Report",StatusWindow)
-    display_gps_info()
-    log_message(" ",StatusWindow)
+    if curses_enabled:
+      StatusWindow.CurrentRow = 1
+      log_message("GPS Status Report",StatusWindow)
+      display_gps_info()
+      log_message(" ",StatusWindow)
+    else:
+      log_message("==========================================")
+      display_gps_info()
+      log_message("==========================================")
 
 
   #----------------------------
@@ -452,7 +463,17 @@ def DisplayHeader():
         
 
         
+        if current_gpstime:
+          
+          #convert GPS UTC time to local time
+          utc_time = datetime.strptime(current_gpstime, "%Y-%m-%dT%H:%M:%S.%fZ")
+          utc_time = utc_zone.localize(utc_time)
+          local_time = utc_time.astimezone(local_zone)
+          
+          thegpsdate = local_time.strftime("%Y-%m-%d %H:%M:%S")
 
+        else:
+          thegpsdate = None
 
         # Define the HeaderLines dictionary with clean formatting
         HeaderLines = {
@@ -465,7 +486,7 @@ def DisplayHeader():
                 7: f"Friendly Devices:    {friendly_key_count:<12}"     + filler,
                 8: f"Total Devices:       {key_count:<12}"              + filler,
                 9: f"Time:                {time_display}"               + filler,
-               10: f"GPS Time:            {gps_data['timestamp']}"      + filler,
+               10: f"Last GPS signal:     {thegpsdate}"                 + filler,
                11: f"Longitude:           {longitude}"                  + filler,
                12: f"Latitude:            {latitude}"                   + filler
 
@@ -1271,46 +1292,61 @@ def display_gps_info():
 
 
 
-
 def get_detailed_gps_coordinates():
     """
     Continuously fetch detailed GPS information and update the shared gps_data dictionary.
-    """
-    global gps_data, gps_lock, gps_stop_event, latitude, longitude, current_latitude, current_longitude
 
+    Args:
+        gps_data (dict): Shared dictionary to store GPS data.
+    """
+    global gps_data, gps_lock, gps_stop_event, latitude, longitude, current_latitude, current_longitude, current_gpstime
 
 
     # Initialize the GPS session
     gpsd = gps.gps(mode=gps.WATCH_ENABLE)
     gpsd.stream(gps.WATCH_ENABLE | gps.WATCH_NEWSTYLE)
 
+    # Default coordinates
+    current_latitude, current_longitude = None, None
+
     try:
         while not gps_stop_event.is_set():
-            gps_report = gpsd.next()
+            try:
+                gps_report = gpsd.next()
 
-            with gps_lock:
-                    latitude  = getattr(gps_report, 'lat', None)
-                    longitude = getattr(gps_report, 'lon', None)
-                    gps_data["latitude"]   = getattr(gps_report, 'lat', None)
-                    gps_data["longitude"]  = getattr(gps_report, 'lon', None)
+                # Process GPS report
+                with gps_lock:
+                    gps_data["latitude"]   = getattr(gps_report, 'lat', current_latitude)
+                    gps_data["longitude"]  = getattr(gps_report, 'lon', current_longitude)
                     gps_data["altitude"]   = getattr(gps_report, 'alt', None)
                     gps_data["speed"]      = getattr(gps_report, 'speed', None)
                     gps_data["timestamp"]  = getattr(gps_report, 'time', None)
                     gps_data["satellites"] = len(gps_report.satellites) if hasattr(gps_report, 'satellites') else None
 
-            if latitude == None or longitude == None or latitude == 0.0 or longitude == 0.0:
-                latitude  = current_latitude
-                longitude = current_longitude
-            else:
-                current_latitude  = latitude
-                current_longitude = longitude
+                    
+                    # Update last known valid coordinates
+                    if gps_data["latitude"] and gps_data["longitude"]:
+                        current_latitude  = gps_data["latitude"]
+                        current_longitude = gps_data["longitude"]
+                        
+                        #record the last good fix
+                        current_gpstime   = gps_data["timestamp"]
 
+            except KeyError:
+                # Handle missing keys in GPS report
+                pass
+            except StopIteration:
+                # Handle GPSD disconnection
+                log_message("GPSD has terminated.")
+                break
+            except Exception as e:
+                log_message(f"Error processing GPS data: {e}")
 
-
-            time.sleep(2)  # Adjust update frequency as needed
+            time.sleep(0.5)  # Adjust update frequency as needed
 
     except Exception as e:
         log_message(f"Error in GPS thread: {e}")
+
 
 
 

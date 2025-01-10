@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Packet Manager</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f4f4f9;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        th, td {
+            border: 1px solid #ccc;
+            padding: 10px;
+            text-align: left;
+        }
+        th {
+            position: sticky;
+            top: 0;
+            z-index: 1; /* Ensures the headers are above table content */
+            background-color: #f8f9fa;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        form {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        input[type="text"], input[type="date"] {
+            padding: 5px;
+            font-size: 14px;
+            width: 200px;
+        }
+        button {
+            padding: 5px 10px;
+            font-size: 14px;
+            cursor: pointer;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 3px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .table-container {
+            max-height: 800px;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        .filter-container {
+            margin-bottom: 20px;
+        }
+        .pagination {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 20px;
+        }
+        .pagination a {
+            text-decoration: none;
+            padding: 5px 10px;
+            font-size: 14px;
+            background-color: #007bff;
+            color: white;
+            border-radius: 3px;
+        }
+        .pagination a:hover {
+            background-color: #0056b3;
+        }
+        .pagination a.disabled {
+            background-color: #ccc;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>Report for SourceMAC: {{ source_mac }}</h1>
+    <table border="1">
+      <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Capture Date</th>
+                <th>Friendly Name</th>
+                <th>SourceMAC</th>
+                <th>Packet Type</th>
+                <th>Device Type</th>
+                <th>SSID</th>
+                <th>Latitude</th>
+                <th>Longitude</th>
+                <th>Tag</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for packet in packets %}
+            <tr>
+                <td>{{ packet.id }}</td>
+                <td>{{ packet.CaptureDate }}</td>
+                <td>{{ packet.FriendlyName }}</td>
+                <td>{{ packet['SourceMAC'] }}</td>
+                <td>{{ packet.PacketType }}</td>
+                <td>{{ packet.DeviceType }}</td>
+                <td>{{ packet.ssid }}</td>
+                <td>{{ packet.latitude }}</td>
+                <td>{{ packet.longitude }}</td>
+                <td>{{ packet.tag }}</td>
+                <td>
+                    <form action="{{ url_for('add_tag') }}" method="post">
+                        <input type="hidden" name="packet_id" value="{{ packet.id }}">
+                        <input type="hidden" name="SourceMAC" value="{{ packet.SourceMAC }}">
+                        <input type="text" name="tag" placeholder="Enter tag" required>
+                        <button type="submit">Add Tag</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+</table>
+    <a href="{{ url_for('home') }}">Back to Home</a>
+</body>
+</html>
