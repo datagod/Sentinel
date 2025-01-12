@@ -22,7 +22,7 @@ def home():
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
     page = request.args.get('page', 1, type=int)  # Default to page 1
-    records_per_page = 100
+    records_per_page = 500
     offset = (page - 1) * records_per_page
 
     if not end_date:
@@ -35,6 +35,7 @@ def home():
     if start_date and end_date:
         start_datetime = f"{start_date} 00:00:00"
         end_datetime = f"{end_date} 23:59:59"
+        query += " and FriendlyName is null"
         query += ' AND CaptureDate BETWEEN ? AND ?'
         params.extend([start_datetime, end_datetime])
 
