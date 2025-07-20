@@ -1,0 +1,8 @@
+scapy
+flask
+cachetools
+netaddr
+pytz
+tzlocal
+pyfiglet
+gps # Optional, comment if no GPS
