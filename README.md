@@ -28,7 +28,9 @@ The **Sentinel Passive Surveillance System** is a robust passive network surveil
 ## Prerequisites
 
 ### Hardware
-- A Wi-Fi adapter capable of monitor mode (e.g., Alfa Network AWUS036ACM).
+- A Wi-Fi adapter capable of monitor mode
+    - Alfa Network AWUS036ACM on a Raspberry Pi 4
+    - Panda PAU0B AC600 works on Raspberry Pi 3B+
 - GPS device for location-based packet data (optional).
 - Raspberry Pi or other Linux-based systems.
 
