@@ -27,6 +27,7 @@ Change Log:
 Date            | Author         | Description
 ----------------|----------------|-----------------------------------------------------------
 2024-11-21      | datagod        | Initial version of the program.
+2026-08-24      | datagod        | E edit mode: freeze details, classify, save friendlies.
 
 
 '''
@@ -49,6 +50,7 @@ import inspect
 from functools import wraps
 from cachetools import TTLCache
 import termios, tty, sys
+import select
 
 import netaddr
 import threading
@@ -98,6 +100,20 @@ gps_data = {
 #Parameters
 curses_enabled          = True
 show_friendly           = True
+edit_mode               = False
+edit_cursor_index       = 0
+edit_snapshot           = []
+last_packet_by_mac      = {}
+curses_stdscr           = None
+edit_overlay            = None
+frozen_screen           = {}
+FRIENDLY_DEVICES_FILE   = "FriendlyDevices.json"
+CLASSIFICATIONS         = ["Friendly", "Router", "Mobile", "IoT", "Camera", "Other"]
+F1_KEYS                 = ("\x1bOP", "\x1b[11~", "\x1b[[A", "\x1b[1P")
+UP_KEYS                 = ("\x1b[A", "\x1bOA")
+DOWN_KEYS               = ("\x1b[B", "\x1bOB")
+ENTER_KEYS              = ("\r", "\n")
+ESC_KEYS                = ("\x1b", "\x1b\x1b")
 
 #Packet Stuff
 current_channel_info    = {"channel": None, "band": None, "frequency": None}
@@ -195,6 +211,21 @@ def clear_screen_ASCII():
 #------------------------------------------------------------------------------
 
 
+def _restore_curses_input(stdscr=None):
+  scr = stdscr or curses_stdscr
+  if scr is None:
+    return
+  try:
+    curses.noecho()
+    curses.cbreak()
+    curses.curs_set(0)
+    scr.keypad(True)
+    scr.nodelay(True)
+    curses.flushinp()
+  except curses.error:
+    pass
+
+
 def ProcessKeypress(Key,stdscr):
   global show_friendly
   global show_routers
@@ -204,7 +235,27 @@ def ProcessKeypress(Key,stdscr):
   # q = quit
   # t = restart in textwindow mode
   # r = restart in raw mode
+
+  if isinstance(Key, int):
+    if Key < 0:
+      return
+    if 32 <= Key <= 126:
+      Key = chr(Key)
+    elif Key in (10, 13, curses.KEY_ENTER):
+      Key = "\n"
+    elif Key == 27:
+      Key = "\x1b"
+    elif Key == curses.KEY_F1:
+      Key = "E"
+    else:
+      return
     
+  if Key in ("E", "e") or Key in F1_KEYS:
+    if curses_enabled and not edit_mode:
+      run_edit_mode()
+      _restore_curses_input(stdscr)
+    return
+
   if (Key == "p" or Key == " "):
     time.sleep(5)
 
@@ -379,23 +430,346 @@ def ProcessKeypress(Key,stdscr):
 
     DisplayHeader()
 
-  
+
+def _edit_windows():
+    return [w for w in (HeaderWindow, StatusWindow, DetailsWindow, InfoWindow) if w is not None]
 
 
-def get_keypress():
-    """Read a single keypress without clearing the screen."""
+def _set_windows_frozen(frozen):
+    for window in _edit_windows():
+        window.frozen = frozen
+
+
+def capture_frozen_screen():
+    global frozen_screen
+    frozen_screen = {}
+    for window in _edit_windows():
+        win = window.window
+        height, width = win.getmaxyx()
+        grid = []
+        for y in range(height):
+            row = []
+            for x in range(width):
+                try:
+                    row.append(win.inch(y, x))
+                except curses.error:
+                    row.append(ord(" "))
+            grid.append(row)
+        frozen_screen[window.name] = grid
+
+
+def restore_frozen_screen():
+    for window in _edit_windows():
+        grid = frozen_screen.get(window.name)
+        if not grid:
+            continue
+        win = window.window
+        try:
+            win.erase()
+        except curses.error:
+            pass
+        for y, row in enumerate(grid):
+            for x, chtype in enumerate(row):
+                try:
+                    win.addch(y, x, chtype)
+                except curses.error:
+                    pass
+        try:
+            win.noutrefresh()
+        except curses.error:
+            pass
+    try:
+        curses.doupdate()
+    except curses.error:
+        pass
+
+
+def snapshot_details_lines():
+    rows = []
+    grid = frozen_screen.get("DetailsWindow")
+    if not grid and DetailsWindow is not None:
+        capture_frozen_screen()
+        grid = frozen_screen.get("DetailsWindow")
+    if not grid:
+        return rows
+    start = 1 if DetailsWindow.ShowBorder == "Y" else 0
+    start_x = 1 if DetailsWindow.ShowBorder == "Y" else 0
+    end = min(start + DetailsWindow.DisplayRows, len(grid) - (1 if DetailsWindow.ShowBorder == "Y" else 0))
+    mac_re = re.compile(r"([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})")
+    for y in range(start, end):
+        chars = []
+        for chtype in grid[y][start_x:]:
+            chars.append(chr(chtype & 0xFF) if (chtype & 0xFF) >= 32 else " ")
+        text = "".join(chars).rstrip()
+        if not text.strip():
+            continue
+        match = mac_re.search(text)
+        mac = normalize_mac(match.group(1)) if match else None
+        info = last_packet_by_mac.get(mac, {}) if mac else {}
+        rows.append({"row": y, "text": text, "mac": mac, "info": info})
+    return rows
+
+
+def _draw_edit_cursor(old_index, new_index):
+    restore_frozen_screen()
+    if edit_snapshot and 0 <= new_index < len(edit_snapshot):
+        DetailsWindow.highlight_row(edit_snapshot[new_index]["row"], enable=True, Color=3)
+
+
+def _centered_window(height, width):
+    height = min(height, max(3, curses.LINES - 2))
+    width = min(width, max(20, curses.COLS - 4))
+    y = max(0, (curses.LINES - height) // 2)
+    x = max(0, (curses.COLS - width) // 2)
+    win = curses.newwin(height, width, y, x)
+    win.bkgd(" ", curses.color_pair(7))
+    win.box()
+    return win, height, width
+
+
+def dismiss_edit_overlay():
+    global edit_overlay
+    if edit_overlay is not None:
+        try:
+            edit_overlay.erase()
+            edit_overlay.refresh()
+        except Exception:
+            pass
+        edit_overlay = None
+    restore_frozen_screen()
+    if edit_mode and edit_snapshot:
+        DetailsWindow.highlight_row(edit_snapshot[edit_cursor_index]["row"], enable=True, Color=3)
+
+
+def get_curses_key(win=None, timeout_ms=-1):
+    """Read one decoded curses key. Arrow keys arrive as KEY_UP/KEY_DOWN, not ESC."""
+    global curses_stdscr
+    target = win if win is not None else curses_stdscr
+    if target is None:
+        key = get_keypress(timeout=None if timeout_ms < 0 else timeout_ms / 1000.0)
+        if key in UP_KEYS:
+            return curses.KEY_UP
+        if key in DOWN_KEYS:
+            return curses.KEY_DOWN
+        if key in ENTER_KEYS:
+            return curses.KEY_ENTER
+        if key in ESC_KEYS:
+            return 27
+        if key:
+            return ord(key[0])
+        return -1
+    target.keypad(True)
+    target.timeout(timeout_ms)
+    target.nodelay(False)
+    try:
+        return target.getch()
+    finally:
+        if curses_stdscr is not None:
+            curses_stdscr.nodelay(1)
+
+
+def _popup_message(text):
+    global edit_overlay
+    dismiss_edit_overlay()
+    win, height, width = _centered_window(5, min(70, curses.COLS - 4))
+    try:
+        win.addstr(2, 2, text[: width - 4])
+    except curses.error:
+        pass
+    win.refresh()
+    edit_overlay = win
+
+
+def prompt_device_name(default_name):
+    default_name = (default_name or "device").strip()
+    win, height, width = _centered_window(7, min(64, curses.COLS - 4))
+    win.addstr(1, 2, "Friendly name (Enter keeps default)")
+    win.addstr(2, 2, f"Default: {default_name[: width - 12]}")
+    win.addstr(4, 2, "> ")
+    win.refresh()
+    curses.echo()
+    curses.curs_set(1)
+    try:
+        raw = win.getstr(4, 4, max(8, width - 8))
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8", "replace")
+        name = raw.strip()
+        return name if name else default_name
+    except curses.error:
+        return default_name
+    finally:
+        curses.noecho()
+        curses.curs_set(0)
+        del win
+        restore_frozen_screen()
+
+
+def choose_classification():
+    options = CLASSIFICATIONS + ["Cancel"]
+    selected = 0
+    win, height, width = _centered_window(len(options) + 4, 42)
+    while True:
+        win.erase()
+        win.box()
+        win.addstr(1, 2, "Classify device  (Enter/Esc)")
+        for i, option in enumerate(options):
+            marker = ">" if i == selected else " "
+            attr = curses.A_REVERSE if i == selected else curses.A_NORMAL
+            try:
+                win.addstr(i + 2, 2, f"{marker} {option}".ljust(width - 4), attr)
+            except curses.error:
+                pass
+        win.refresh()
+        key = get_curses_key(win)
+        if key in (curses.KEY_UP,):
+            selected = (selected - 1) % len(options)
+        elif key in (curses.KEY_DOWN,):
+            selected = (selected + 1) % len(options)
+        elif key in (curses.KEY_ENTER, 10, 13):
+            choice = options[selected]
+            del win
+            restore_frozen_screen()
+            return None if choice == "Cancel" else choice
+        elif key in (27, ord("q")):
+            del win
+            restore_frozen_screen()
+            return None
+
+
+def save_friendly_devices_dict(filename, devices):
+    with open(filename, "w") as json_file:
+        json.dump(devices, json_file, indent=2)
+
+
+def add_or_update_friendly_device(mac, friendly_name, device_type, brand):
+    global friendly_devices_dict
+    mac = normalize_mac(mac)
+    devices = list(friendly_devices_dict or [])
+    updated = False
+    for device in devices:
+        if normalize_mac(device.get("MAC", "")) == mac:
+            device["FriendlyName"] = friendly_name
+            device["Type"] = device_type
+            device["Brand"] = brand
+            updated = True
+            break
+    if not updated:
+        devices.append({
+            "MAC": mac,
+            "FriendlyName": friendly_name,
+            "Type": device_type,
+            "Brand": brand,
+        })
+    friendly_devices_dict = devices
+    save_friendly_devices_dict(FRIENDLY_DEVICES_FILE, devices)
+    return updated
+
+
+def classify_selected_line():
+    global friendly_key_count
+    if not edit_snapshot:
+        return
+    item = edit_snapshot[edit_cursor_index]
+    mac = item.get("mac")
+    if not mac:
+        _popup_message("No MAC address on this line.")
+        return
+    info = item.get("info") or last_packet_by_mac.get(mac, {})
+    classification = choose_classification()
+    if not classification:
+        return
+
+    default_name = info.get("FriendlyName") or info.get("SSID") or info.get("Brand") or mac
+    if default_name in (None, "", "??"):
+        default_name = mac
+
+    if classification == "Friendly":
+        friendly_name = prompt_device_name(str(default_name))
+        device_type = info.get("DeviceType") or info.get("Type") or "Friendly"
+        brand = info.get("Brand") or ""
+        add_or_update_friendly_device(mac, friendly_name, device_type, brand)
+        _popup_message(f"Added {friendly_name} to FriendlyDevices.json")
+    else:
+        friendly_name = str(default_name)
+        brand = info.get("Brand") or ""
+        add_or_update_friendly_device(mac, friendly_name, classification, brand)
+        _popup_message(f"{mac} classified as {classification}")
+
+    friendly_key_count = len(friendly_devices_dict or [])
+
+
+def run_edit_mode():
+    global edit_mode, edit_cursor_index, edit_snapshot
+    if not curses_enabled or DetailsWindow is None or edit_mode:
+        return
+
+    edit_mode = True
+    _set_windows_frozen(True)
+    capture_frozen_screen()
+    edit_snapshot = snapshot_details_lines()
+    if not edit_snapshot:
+        _set_windows_frozen(False)
+        edit_mode = False
+        log_message("EDIT MODE: no device lines to select", StatusWindow)
+        return
+
+    edit_cursor_index = 0
+    _draw_edit_cursor(0, 0)
+
+    try:
+        while True:
+            key = get_curses_key()
+            if key in (-1,):
+                continue
+            if key == curses.KEY_UP:
+                if edit_overlay is not None:
+                    dismiss_edit_overlay()
+                new_index = (edit_cursor_index - 1) % len(edit_snapshot)
+                _draw_edit_cursor(edit_cursor_index, new_index)
+                edit_cursor_index = new_index
+            elif key == curses.KEY_DOWN:
+                if edit_overlay is not None:
+                    dismiss_edit_overlay()
+                new_index = (edit_cursor_index + 1) % len(edit_snapshot)
+                _draw_edit_cursor(edit_cursor_index, new_index)
+                edit_cursor_index = new_index
+            elif key in (curses.KEY_ENTER, 10, 13):
+                restore_frozen_screen()
+                classify_selected_line()
+            elif key in (27, ord("q"), ord("E"), ord("e"), curses.KEY_F1):
+                break
+    finally:
+        dismiss_edit_overlay()
+        restore_frozen_screen()
+        _set_windows_frozen(False)
+        edit_mode = False
+        _restore_curses_input()
+
+
+def get_keypress(timeout=None):
+    """Read a single keypress, including function and arrow keys."""
     fd = sys.stdin.fileno()
     old_settings = termios.tcgetattr(fd)
     try:
         tty.setraw(fd)
+        if timeout is not None:
+            ready, _, _ = select.select([fd], [], [], timeout)
+            if not ready:
+                return ""
         key = sys.stdin.read(1)
-
-        if key == '\x1b':  # Escape character
-            key += sys.stdin.read(2)  # Read additional characters
-
+        if key != "\x1b":
+            return key
+        sequence = key
+        while True:
+            ready, _, _ = select.select([fd], [], [], 0.05)
+            if not ready:
+                break
+            sequence += sys.stdin.read(1)
+            if sequence[-1].isalpha() or sequence[-1] == "~":
+                break
+        return sequence
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-    return key
 
 
 
@@ -536,6 +910,8 @@ def ProcessPacketInfo():
     global RouterCount
     global MobileCount
     global OtherCount
+    global last_packet_by_mac
+    global edit_mode
 
     channel         = 0
     band            = 0
@@ -596,9 +972,19 @@ def ProcessPacketInfo():
 
 
 
+    if ProcessedPacket.source_mac and ProcessedPacket.source_mac not in ("UNKNOWN", "FF:FF:FF:FF:FF:FF"):
+        last_packet_by_mac[ProcessedPacket.source_mac] = {
+            "MAC": ProcessedPacket.source_mac,
+            "FriendlyName": ProcessedPacket.FriendlyName,
+            "Type": ProcessedPacket.FriendlyType or ProcessedPacket.DeviceType,
+            "Brand": ProcessedPacket.source_vendor or ProcessedPacket.FriendlyBrand or "",
+            "SSID": ProcessedPacket.ssid,
+            "DeviceType": ProcessedPacket.DeviceType,
+        }
+
     # To declutter the screen we don't display items that are in the cache
     # the cache expires after X minutes
-    if packet_key not in displayed_packets_cache:
+    if (not edit_mode) and packet_key not in displayed_packets_cache:
       #add to cache
       displayed_packets_cache[packet_key] = True
       key_count = len(displayed_packets_cache)
@@ -1578,8 +1964,11 @@ def determine_device_type_with_packet(packet):
 @profile_decorator
 def search_friendly_devices(mac, friendly_devices):
 
+    if not mac or not friendly_devices:
+        return None
+    mac = normalize_mac(mac)
     for device in friendly_devices:
-        if device["MAC"] == mac:
+        if normalize_mac(device.get("MAC", "")) == mac:
             return {"FriendlyName": device["FriendlyName"], "Type": device["Type"], "Brand": device["Brand"]}
 
     return None  # Return None if MAC is not found
@@ -2845,6 +3234,8 @@ def main(stdscr):
     global InfoWindow
     global DetailsWindow
     global RawWindow
+    global curses_stdscr
+    curses_stdscr = stdscr
     global oui_dict
     global friendly_devices_dict
     global hop_interval
@@ -2901,11 +3292,11 @@ def main(stdscr):
             (12, ""),
         ]
     
-        HeaderWindow  = textwindows.HeaderWindow(name='HeaderWindow', title='Header',    rows= HeaderHeight, columns=window_width *2, y1=0, x1=0,                                 ShowBorder='Y', BorderColor=2, TitleColor=3,fixed_lines=fixed_lines)
-        StatusWindow  = textwindows.TextWindow  (name='StatusWindow', title='Header',    rows= HeaderHeight, columns=window_width *3, y1=0, x1=window_width *2  + 1,              ShowBorder='Y', BorderColor=2, TitleColor=3)
+        HeaderWindow  = textwindows.HeaderWindow(name='HeaderWindow', title='Sentinel',  rows= HeaderHeight, columns=window_width *2, y1=0, x1=0,                                 ShowBorder='Y', BorderColor=2, TitleColor=3,fixed_lines=fixed_lines)
+        StatusWindow  = textwindows.TextWindow  (name='StatusWindow', title='Status',    rows= HeaderHeight, columns=window_width *3, y1=0, x1=window_width *2  + 1,              ShowBorder='Y', BorderColor=2, TitleColor=3)
 
         DetailsWindow = textwindows.TextWindow  (name='DetailsWindow',title='Details',   rows=max_y - 1,     columns=window_width *3, y1=(HeaderHeight), x1=0,                    ShowBorder='Y', BorderColor=2, TitleColor=2)
-        InfoWindow    = textwindows.TextWindow  (name='InfoWindow',   title='Extra Info',rows=max_y - 1,     columns=window_width *2, y1=(HeaderHeight), x1=window_width * 3 + 1, ShowBorder='Y', BorderColor=2, TitleColor=2)
+        InfoWindow    = textwindows.TextWindow  (name='InfoWindow',   title='Information',rows=max_y - 1,    columns=window_width *2, y1=(HeaderHeight), x1=window_width * 3 + 1, ShowBorder='Y', BorderColor=2, TitleColor=2)
  
  
         #PacketWindow  = textwindows.TextWindow  (name='PacketWindow', title='Packets',   rows=max_y - 1,     columns=window_width,   y1=(HeaderHeight), x1=window_width * 2,     ShowBorder='Y', BorderColor=2, TitleColor=2)
@@ -2919,7 +3310,7 @@ def main(stdscr):
         
         
         # Refresh windows for initial setup
-        HeaderWindow.DisplayTitle('Sentinel 1.0')
+        HeaderWindow.DisplayTitle('Sentinel')
         HeaderWindow.refresh()
         
         #PacketWindow.DisplayTitle('Packet Info')
@@ -3036,16 +3427,17 @@ def main(stdscr):
          
 
           #Check for keyboard input
-          current_time = time.time()
-
-          if current_time - last_time >= keyboard_interval:
-            Key = get_keypress()
-            ProcessKeypress(Key,stdscr)
-            last_time = current_time
-
-
-
-          time.sleep(main_interval)
+          if curses_enabled:
+            Key = get_curses_key(timeout_ms=200)
+            if Key not in (-1, None, ""):
+              ProcessKeypress(Key, stdscr)
+          else:
+            current_time = time.time()
+            if current_time - last_time >= keyboard_interval:
+              Key = get_keypress()
+              ProcessKeypress(Key, stdscr)
+              last_time = current_time
+            time.sleep(main_interval)
             
             # Safely read GPS coordinates
           with gps_lock:

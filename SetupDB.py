@@ -106,13 +106,10 @@ GROUP BY
 
 
         "indexes": '''
-      
-         create index i_Packet_capturedate on Packet(CaptureDate);
-         create index i_Packet_SourceMAC on Packet(SourceMAC);
-         create unique index ui_PacketTag on PacketTag(PacketID, TagID);
-         create index i_Tag_tag on Tag(tag);
-
-            );
+         create index if not exists i_Packet_capturedate on Packet(CaptureDate);
+         create index if not exists i_Packet_SourceMAC on Packet(SourceMAC);
+         create unique index if not exists ui_PacketTag on PacketTag(PacketID, TagID);
+         create index if not exists i_Tag_tag on Tag(tag);
         '''
 
     }
@@ -120,11 +117,10 @@ GROUP BY
     # Execute each table creation query
     for table_name, query in table_queries.items():
         print(f"Command found: {table_name}")
-        #if table_name in ('vPacket','PacketTag','Tag'):
-            print("Executing command...")
-            cursor.execute(query)
-            print("done")
-            print(f"Object '{table_name}' created successfully in the database.")
+        print("Executing command...")
+        cursor.executescript(query)
+        print("done")
+        print(f"Object '{table_name}' created successfully in the database.")
 
     # Commit the changes and close the connection
     conn.commit()

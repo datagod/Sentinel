@@ -195,6 +195,7 @@ class TextWindow(BaseTextInterface):
         self.PreviousLineText = ""
         self.PreviousLineRow = 0
         self.PreviousLineColor = 2
+        self.frozen = False
 
         if self.ShowBorder == 'Y':
             self.CurrentRow = 1
@@ -305,13 +306,13 @@ class TextWindow(BaseTextInterface):
 
 
     def DisplayTitle(self, Title='', x=2, filler='─'):
-        # Display the object's title, or a custom one 
-        # Use self.title if available, otherwise fall back to Title
-        DisplayTitle = self.title if self.title else Title
-        DisplayTitle = Title if Title != '' else self.title 
+        # Display the object's title, or a custom one
+        if Title:
+            self.title = Title
+        DisplayTitle = self.title or ''
 
-        # Replace spaces in the title with the filler character
-        DisplayTitle = DisplayTitle.replace(' ', filler)
+        # Keep spaces in the visible title; filler is only used if we pad later
+        DisplayTitle = DisplayTitle.strip()
 
         # Ensure that the title length fits within the window width minus a buffer
         max_title_length = max(self.DisplayColumns - 3, 0)
@@ -351,6 +352,27 @@ class TextWindow(BaseTextInterface):
     def refresh(self):
         #self.window.touchwin()  
         self.window.refresh()
+
+    def read_line(self, row):
+        try:
+            raw = self.window.instr(row, self.StartColumn, self.DisplayColumns)
+            return raw.decode("utf-8", "replace").rstrip()
+        except curses.error:
+            return ""
+
+    def highlight_row(self, row, enable=True, Color=3):
+        text = self.read_line(row)
+        if not text:
+            return
+        text = text.ljust(self.DisplayColumns)[:self.DisplayColumns]
+        try:
+            attr = curses.A_REVERSE | curses.A_BOLD if enable else curses.A_NORMAL
+            self.window.attron(curses.color_pair(Color) | attr)
+            self.window.addstr(row, self.StartColumn, text)
+            self.window.attroff(curses.color_pair(Color) | attr)
+            self.window.refresh()
+        except curses.error:
+            pass
 
 
     def _apply_line_update(self, row, column, text, Color=2, Bold=False):
@@ -458,6 +480,8 @@ def ProcessQueue():
 
             window = GlobalWindowRegistry.get(window_name)
             if window:
+                if getattr(window, "frozen", False):
+                    continue
                 if row > -1:
                     window._apply_line_update(row, column, message, Color, Bold)
                 else:
