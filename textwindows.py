@@ -348,6 +348,9 @@ class TextWindow(BaseTextInterface):
         else:
             self.CurrentRow = 0
             self.StartColumn = 0
+        self.PreviousLineText = ""
+        self.PreviousLineRow = self.CurrentRow
+        self.PreviousLineColor = 2
 
     def refresh(self):
         #self.window.touchwin()  

@@ -28,6 +28,7 @@ Date            | Author         | Description
 ----------------|----------------|-----------------------------------------------------------
 2024-11-21      | datagod        | Initial version of the program.
 2026-08-24      | datagod        | E edit mode: freeze details, classify, save friendlies.
+2026-08-24      | datagod        | IE fingerprint + probe-SSID matching for randomized MACs.
 
 
 '''
@@ -44,6 +45,7 @@ import csv
 import subprocess
 import re
 import json
+import hashlib
 from collections import Counter, defaultdict
 import gps
 import inspect
@@ -121,6 +123,13 @@ displayed_packets_cache = TTLCache(maxsize=10000, ttl=900)   #entry expires afte
 friendly_device_cache   = TTLCache(maxsize=10000, ttl=3600)  #entry expires after 1 hour
 key_count               = 0
 friendly_devices_dict   = None
+probe_history           = defaultdict(lambda: {"ssids": set(), "ie_hash": None})
+COMMON_SSIDS            = {
+    "xfinitywifi", "xfinity", "attwifi", "att wifi", "eduroam",
+    "google starbucks", "linksys", "netgear", "dlink", "setup",
+    "hp-setup", "androidshare", "iphone", "optimumwifi", "spectrumwifi",
+    "cablewifi", "guest", "public", "hotel", "airport",
+}
 PacketCount             = 0
 friendly_key_count      = 0
 PacketQueue             = queue.Queue()
@@ -211,6 +220,35 @@ def clear_screen_ASCII():
 #------------------------------------------------------------------------------
 
 
+KEYBOARD_HELP_LINES = [
+    "KEYS   ?/F1 this help          E edit/classify",
+    "p/Spc  pause 5s                q quit",
+    "f      toggle friendly         r toggle routers",
+    "g      GPS status              c clear windows",
+    "R      restart                 t windows/raw",
+    "1      top devices             2 top mobile",
+    "3      recent intruders",
+    "EDIT   Up/Down move   Enter classify   Esc/E exit",
+]
+
+
+def show_keyboard_help():
+    if curses_enabled and StatusWindow is not None:
+        try:
+            StatusWindow.Clear()
+            StatusWindow.ScrollPrint("Keyboard commands", Color=5, TimeStamp=False)
+            for line in KEYBOARD_HELP_LINES:
+                StatusWindow.ScrollPrint(line, Color=3, TimeStamp=False)
+            StatusWindow.refresh()
+        except Exception:
+            for line in KEYBOARD_HELP_LINES:
+                log_message(line, StatusWindow)
+    else:
+        print("Keyboard commands")
+        for line in KEYBOARD_HELP_LINES:
+            print(f"  {line}")
+
+
 def _restore_curses_input(stdscr=None):
   scr = stdscr or curses_stdscr
   if scr is None:
@@ -246,11 +284,16 @@ def ProcessKeypress(Key,stdscr):
     elif Key == 27:
       Key = "\x1b"
     elif Key == curses.KEY_F1:
-      Key = "E"
+      show_keyboard_help()
+      return
     else:
       return
-    
-  if Key in ("E", "e") or Key in F1_KEYS:
+
+  if Key == "?" or Key in F1_KEYS:
+    show_keyboard_help()
+    return
+
+  if Key in ("E", "e"):
     if curses_enabled and not edit_mode:
       run_edit_mode()
       _restore_curses_input(stdscr)
@@ -641,25 +684,51 @@ def save_friendly_devices_dict(filename, devices):
         json.dump(devices, json_file, indent=2)
 
 
-def add_or_update_friendly_device(mac, friendly_name, device_type, brand):
+def add_or_update_friendly_device(mac, friendly_name, device_type, brand, ie_hash=None, probe_ssids=None):
     global friendly_devices_dict
-    mac = normalize_mac(mac)
+    mac = normalize_mac(mac) if mac else None
     devices = list(friendly_devices_dict or [])
-    updated = False
+    history = probe_history.get(mac, {}) if mac else {}
+    ie_hash = ie_hash or history.get("ie_hash")
+    ssids = set(probe_ssids or []) | set(history.get("ssids") or [])
+
+    target = None
     for device in devices:
-        if normalize_mac(device.get("MAC", "")) == mac:
-            device["FriendlyName"] = friendly_name
-            device["Type"] = device_type
-            device["Brand"] = brand
-            updated = True
+        if mac and mac in _device_macs(device):
+            target = device
             break
-    if not updated:
-        devices.append({
+        if ie_hash and device.get("IEHash") == ie_hash:
+            target = device
+            break
+
+    if target is None:
+        target = {
             "MAC": mac,
+            "MACs": [mac] if mac else [],
             "FriendlyName": friendly_name,
             "Type": device_type,
             "Brand": brand,
-        })
+        }
+        devices.append(target)
+        updated = False
+    else:
+        target["FriendlyName"] = friendly_name
+        target["Type"] = device_type
+        target["Brand"] = brand
+        if mac:
+            target["MAC"] = mac
+            known = list(target.get("MACs") or [])
+            if mac not in {normalize_mac(m) for m in known if m}:
+                known.append(mac)
+            target["MACs"] = known
+        updated = True
+
+    if ie_hash:
+        target["IEHash"] = ie_hash
+    if ssids:
+        merged = list(dict.fromkeys((target.get("ProbeSSIDs") or []) + sorted(ssids)))
+        target["ProbeSSIDs"] = merged
+
     friendly_devices_dict = devices
     save_friendly_devices_dict(FRIENDLY_DEVICES_FILE, devices)
     return updated
@@ -683,16 +752,19 @@ def classify_selected_line():
     if default_name in (None, "", "??"):
         default_name = mac
 
+    ie_hash = info.get("IEHash")
+    probe_ssids = info.get("ProbeSSIDs") or []
     if classification == "Friendly":
         friendly_name = prompt_device_name(str(default_name))
         device_type = info.get("DeviceType") or info.get("Type") or "Friendly"
         brand = info.get("Brand") or ""
-        add_or_update_friendly_device(mac, friendly_name, device_type, brand)
-        _popup_message(f"Added {friendly_name} to FriendlyDevices.json")
+        add_or_update_friendly_device(mac, friendly_name, device_type, brand, ie_hash=ie_hash, probe_ssids=probe_ssids)
+        extra = f" hash={ie_hash}" if ie_hash else ""
+        _popup_message(f"Added {friendly_name}{extra}")
     else:
         friendly_name = str(default_name)
         brand = info.get("Brand") or ""
-        add_or_update_friendly_device(mac, friendly_name, classification, brand)
+        add_or_update_friendly_device(mac, friendly_name, classification, brand, ie_hash=ie_hash, probe_ssids=probe_ssids)
         _popup_message(f"{mac} classified as {classification}")
 
     friendly_key_count = len(friendly_devices_dict or [])
@@ -736,7 +808,9 @@ def run_edit_mode():
             elif key in (curses.KEY_ENTER, 10, 13):
                 restore_frozen_screen()
                 classify_selected_line()
-            elif key in (27, ord("q"), ord("E"), ord("e"), curses.KEY_F1):
+            elif key in (curses.KEY_F1, ord("?")):
+                show_keyboard_help()
+            elif key in (27, ord("q"), ord("E"), ord("e")):
                 break
     finally:
         dismiss_edit_overlay()
@@ -954,8 +1028,13 @@ def ProcessPacketInfo():
 
 
 
-    #Check for friendly device
-    result = search_friendly_devices(ProcessedPacket.source_mac,friendly_devices_dict)
+    #Check for friendly device (MAC, then IE fingerprint + probe SSIDs)
+    result = search_friendly_devices(
+        ProcessedPacket.source_mac,
+        friendly_devices_dict,
+        ie_hash=ProcessedPacket.ie_hash,
+        probe_ssids=ProcessedPacket.probe_ssids,
+    )
     if result:
         ProcessedPacket.FriendlyDevice = True
         ProcessedPacket.FriendlyName   = result.get('FriendlyName', '') or ''
@@ -980,11 +1059,14 @@ def ProcessPacketInfo():
             "Brand": ProcessedPacket.source_vendor or ProcessedPacket.FriendlyBrand or "",
             "SSID": ProcessedPacket.ssid,
             "DeviceType": ProcessedPacket.DeviceType,
+            "IEHash": ProcessedPacket.ie_hash,
+            "ProbeSSIDs": list(ProcessedPacket.probe_ssids or []),
         }
 
     # To declutter the screen we don't display items that are in the cache
     # the cache expires after X minutes
-    if (not edit_mode) and packet_key not in displayed_packets_cache:
+    hide_friendly = ProcessedPacket.FriendlyDevice and (not show_friendly)
+    if (not edit_mode) and (not hide_friendly) and packet_key not in displayed_packets_cache:
       #add to cache
       displayed_packets_cache[packet_key] = True
       key_count = len(displayed_packets_cache)
@@ -993,7 +1075,7 @@ def ProcessPacketInfo():
       if curses_enabled: 
   
     
-          if show_friendly and ProcessedPacket.FriendlyDevice == True:
+          if ProcessedPacket.FriendlyDevice == True:
             NameString = f"{str(ProcessedPacket.FriendlyName)} - {str(ProcessedPacket.FriendlyType)}"
             
             FormattedString = format_into_columns(DetailsWindow.columns, 
@@ -1036,6 +1118,9 @@ def ProcessPacketInfo():
             InfoWindow.QueuePrint(f'Band:          {ProcessedPacket.band}')
             InfoWindow.QueuePrint(f'channel:       {ProcessedPacket.channel}')
             InfoWindow.QueuePrint(f'signal:        {ProcessedPacket.signal} dB')
+            InfoWindow.QueuePrint(f'IEHash:        {ProcessedPacket.ie_hash or "--"}')
+            if ProcessedPacket.probe_ssids:
+                InfoWindow.QueuePrint(f'ProbeSSIDs:    {", ".join(ProcessedPacket.probe_ssids[:8])}')
             InfoWindow.QueuePrint('---------------------------------------------------')
       
 
@@ -1191,6 +1276,8 @@ class PacketInformation():
         self.mac_details    = None
         self.Packet         = None
         self.PacketType     = None
+        self.ie_hash        = None
+        self.probe_ssids    = []
         
      
 
@@ -1869,6 +1956,97 @@ def extract_ssid(packet):
     return 'UNKNOWN'
 
 
+def iter_information_elements(packet):
+    if packet is None:
+        return
+    layer = packet
+    while layer is not None:
+        if isinstance(layer, Dot11Elt):
+            yield layer
+        payload = getattr(layer, "payload", None)
+        if payload is None or payload is layer:
+            break
+        if payload.__class__.__name__ in ("NoPayload", "Padding"):
+            break
+        layer = payload
+
+
+def _elt_info_bytes(elt):
+    info = getattr(elt, "info", None)
+    if info is None:
+        return b""
+    if isinstance(info, bytes):
+        return info
+    if isinstance(info, str):
+        return info.encode("utf-8", "replace")
+    try:
+        return bytes(info)
+    except Exception:
+        return b""
+
+
+@profile_decorator
+def compute_ie_fingerprint(packet):
+    """Return (ie_hash, directed_ssids) from the 802.11 IE chain.
+
+    SSID tags (ID 0) are collected separately and omitted from the hash so
+    directed probes from the same radio still fingerprint the same way.
+    TIM (ID 5) is skipped because it changes every beacon.
+    """
+    parts = []
+    ssids = []
+    for elt in iter_information_elements(packet):
+        tag_id = getattr(elt, "ID", None)
+        if tag_id is None:
+            continue
+        info_bytes = _elt_info_bytes(elt)
+        if tag_id == 0:
+            ssid = info_bytes.decode("utf-8", "ignore").strip("\x00").strip()
+            if ssid:
+                ssids.append(ssid)
+            continue
+        if tag_id == 5:
+            continue
+        parts.append(f"{int(tag_id)}:{info_bytes.hex()}")
+    ie_hash = hashlib.sha256("|".join(parts).encode("ascii")).hexdigest()[:16] if parts else None
+    return ie_hash, ssids
+
+
+def _rare_ssids(ssids):
+    rare = set()
+    for ssid in ssids or []:
+        if not ssid:
+            continue
+        lower = ssid.lower()
+        if lower in COMMON_SSIDS:
+            continue
+        if lower.startswith("androidshare") or lower.startswith("direct-"):
+            continue
+        rare.add(ssid)
+    return rare
+
+
+def _device_macs(device):
+    macs = []
+    if device.get("MAC"):
+        macs.append(normalize_mac(device["MAC"]))
+    for extra in device.get("MACs") or []:
+        if extra:
+            macs.append(normalize_mac(extra))
+    return set(macs)
+
+
+def remember_probe_observation(mac, ie_hash, probe_ssids):
+    if not mac or mac in ("UNKNOWN", "FF:FF:FF:FF:FF:FF"):
+        return
+    mac = normalize_mac(mac)
+    record = probe_history[mac]
+    if ie_hash:
+        record["ie_hash"] = ie_hash
+    for ssid in probe_ssids or []:
+        record["ssids"].add(ssid)
+
+
 
 @profile_decorator
 def load_friendly_devices_dict(filename):
@@ -1960,18 +2138,58 @@ def determine_device_type_with_packet(packet):
 
 
 
-# Function to search for a MAC address in a list of friendly devices
+# Function to search for a known device by MAC, IE fingerprint, or probe SSIDs
 @profile_decorator
-def search_friendly_devices(mac, friendly_devices):
+def search_friendly_devices(mac, friendly_devices, ie_hash=None, probe_ssids=None):
 
-    if not mac or not friendly_devices:
+    if not friendly_devices:
         return None
-    mac = normalize_mac(mac)
-    for device in friendly_devices:
-        if normalize_mac(device.get("MAC", "")) == mac:
-            return {"FriendlyName": device["FriendlyName"], "Type": device["Type"], "Brand": device["Brand"]}
+    mac_n = normalize_mac(mac) if mac else None
+    history = probe_history.get(mac_n, {}) if mac_n else {}
+    if not ie_hash:
+        ie_hash = history.get("ie_hash")
+    observed_ssids = set(probe_ssids or []) | set(history.get("ssids") or [])
+    rare = _rare_ssids(observed_ssids)
 
-    return None  # Return None if MAC is not found
+    mac_hit = None
+    hash_ssid_hit = None
+    hash_only_hits = []
+
+    for device in friendly_devices:
+        if mac_n and mac_n in _device_macs(device):
+            mac_hit = device
+            break
+        stored_hash = device.get("IEHash")
+        stored_ssids = _rare_ssids(device.get("ProbeSSIDs") or [])
+        if ie_hash and stored_hash and ie_hash == stored_hash:
+            if rare and stored_ssids and (rare & stored_ssids):
+                hash_ssid_hit = device
+            elif not stored_ssids:
+                hash_only_hits.append(device)
+
+    chosen = mac_hit or hash_ssid_hit
+    if not chosen and len(hash_only_hits) == 1:
+        chosen = hash_only_hits[0]
+    if not chosen:
+        return None
+
+    if mac_n and mac_n not in _device_macs(chosen):
+        known = list(chosen.get("MACs") or [])
+        if chosen.get("MAC") and normalize_mac(chosen["MAC"]) not in {normalize_mac(m) for m in known if m}:
+            known.insert(0, chosen["MAC"])
+        known.append(mac_n)
+        chosen["MACs"] = list(dict.fromkeys(known))
+        chosen["MAC"] = mac_n
+        try:
+            save_friendly_devices_dict(FRIENDLY_DEVICES_FILE, friendly_devices)
+        except Exception:
+            pass
+
+    return {
+        "FriendlyName": chosen.get("FriendlyName"),
+        "Type": chosen.get("Type"),
+        "Brand": chosen.get("Brand"),
+    }
 
 
 
@@ -2496,6 +2714,10 @@ def process_packet(packet):
           ProcessedPacket.source_oui = ProcessedPacket.source_mac[:8]
 
       ProcessedPacket.ssid    = extract_ssid(packet)
+      ProcessedPacket.ie_hash, ProcessedPacket.probe_ssids = compute_ie_fingerprint(packet)
+      if ProcessedPacket.probe_ssids and (not ProcessedPacket.ssid or ProcessedPacket.ssid in ("UNKNOWN", "Hidden")):
+          ProcessedPacket.ssid = ProcessedPacket.probe_ssids[0]
+      remember_probe_observation(ProcessedPacket.source_mac, ProcessedPacket.ie_hash, ProcessedPacket.probe_ssids)
       ProcessedPacket.channel = current_channel_info['channel']
       ProcessedPacket.band    = current_channel_info['band']
       
@@ -3318,6 +3540,7 @@ def main(stdscr):
 
         StatusWindow.DisplayTitle('Status')
         StatusWindow.refresh()
+        show_keyboard_help()
 
 
         InfoWindow.DisplayTitle('Information')
@@ -3332,14 +3555,9 @@ def main(stdscr):
         #RawWindow.DisplayTitle('Raw Data')
         #RawWindow.refresh()
 
-
-        log_message(f"Height x Width {ScreenHeight}x{ScreenWidth}")    
-
-        # Start the queue processing thread automatically
-        log_message(f"Starting thread: queue_processor_thread",ShowTime=True)
         queue_processor_thread = threading.Thread(target=textwindows.ProcessQueue, daemon=True)
         queue_processor_thread.start()
-        TheTime = f"{str(datetime.now())[11:19]:<8}"
+        log_message(f"Height x Width {ScreenHeight}x{ScreenWidth}")
         log_message(f"queue_processor_thread started",ShowTime=True)
 
 
