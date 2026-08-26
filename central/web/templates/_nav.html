@@ -1,0 +1,20 @@
+<header class="header">
+  <h1 class="brand-title">
+    <img src="/static/img/sentinel-central-icon.svg" alt="" class="brand-icon" width="32" height="32">
+    Sentinel Central
+  </h1>
+  <p class="subtitle">Collect packet records from Sentinel clients across the security network</p>
+  <nav class="site-nav" aria-label="Site">
+    <a href="/" {% if page == 'dashboard' %}aria-current="page"{% endif %}>Dashboard</a>
+    <a href="/devices" {% if page == 'devices' %}aria-current="page"{% endif %}>Devices</a>
+    <a href="/packets" {% if page == 'packets' %}aria-current="page"{% endif %}>Packets</a>
+    <a href="/reports" {% if page == 'reports' %}aria-current="page"{% endif %}>Reports</a>
+    <a href="/clients" {% if page == 'clients' %}aria-current="page"{% endif %}>Clients</a>
+    <a href="/settings" {% if page == 'settings' %}aria-current="page"{% endif %}>Settings</a>
+  </nav>
+  <div class="header-meta">
+    <p class="status-line" id="header-status">
+      {{ stats.packets }} packets · {{ stats.devices }} devices · {{ stats.friendly_devices or 0 }} friendly · {{ stats.enabled_clients }}/{{ stats.clients }} clients · ingest every {{ interval }}s
+    </p>
+  </div>
+</header>

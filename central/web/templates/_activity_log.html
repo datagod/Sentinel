@@ -1,0 +1,27 @@
+    <div class="set-activity-shell" id="activity-log-shell">
+      <aside class="set-activity-panel panel activity-log-panel" id="activity-log-panel">
+        <div class="panel-head activity-log-panel-head">
+          <h2>Activity Log</h2>
+          <div class="activity-log-head-actions">
+            <button type="button" class="btn btn-secondary btn-small" id="btn-clear-activity-log">Clear</button>
+            <button type="button" class="btn btn-secondary btn-small" id="btn-hide-activity-log" title="Hide activity log for more room" aria-label="Hide activity log">Hide</button>
+          </div>
+        </div>
+        <div class="log-scroll" id="activity-log">
+          {% if log %}
+            {% for e in log %}
+            <div class="activity-entry activity-entry--{{ e.level }}" data-id="{{ e.id }}">
+              <span class="lvl-{{ e.level }}">{{ e.created_at }}</span>
+              {{ e.message }}
+            </div>
+            {% endfor %}
+          {% else %}
+            <p class="summary-empty" id="activity-log-empty">No activity yet.</p>
+          {% endif %}
+        </div>
+      </aside>
+    </div>
+  </div>
+</div>
+<button type="button" class="btn btn-secondary btn-show-activity-log" id="btn-show-activity-log" title="Show activity log" aria-label="Show activity log">Show activity log</button>
+<script src="/static/js/app.js?v=9"></script>

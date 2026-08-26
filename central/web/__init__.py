@@ -1,0 +1,1 @@
+"""Sentinel Central web UI."""

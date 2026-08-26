@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "_head.html" %}
+  <title>Clients · Sentinel Central</title>
+</head>
+<body>
+  <div class="set-app">
+    <div class="set-layout">
+    <div class="set-main">
+    {% include "_nav.html" %}
+
+    <section class="set-panel">
+      <h2 id="client-form-title">Add client</h2>
+      <p class="hint" id="client-form-hint">A client is a Sentinel installation. Use a local path or an SMB URL such as <code>smb://192.168.0.164/sentinel/packet.db</code>.</p>
+      <input type="hidden" id="client-id" value="">
+      <div class="set-grid" style="margin-top:0.75rem">
+        <div class="set-field">
+          <label for="client-name">Name</label>
+          <input class="set-input" id="client-name" placeholder="patio-pi">
+        </div>
+        <div class="set-field">
+          <label for="client-path">Database path</label>
+          <input class="set-input" id="client-path" placeholder="smb://192.168.0.164/sentinel/packet.db">
+        </div>
+        <div class="set-field">
+          <label for="client-notes">Notes</label>
+          <input class="set-input" id="client-notes" placeholder="Patio Raspberry Pi">
+        </div>
+        <div class="set-field">
+          <label for="client-smb-username">SMB username</label>
+          <input class="set-input" id="client-smb-username" placeholder="guest (optional)">
+        </div>
+        <div class="set-field">
+          <label for="client-smb-password">SMB password</label>
+          <input class="set-input" id="client-smb-password" type="password" placeholder="leave blank to keep / guest" autocomplete="new-password">
+        </div>
+      </div>
+      <label class="set-check">
+        <input type="checkbox" id="client-enabled" checked>
+        Enabled (include in scheduled pulls)
+      </label>
+      <div class="actions-row">
+        <button type="button" class="btn btn-primary" id="btn-save-client">Add client</button>
+        <button type="button" class="btn btn-secondary" id="btn-cancel-edit" hidden>Cancel</button>
+      </div>
+      <p class="hint" id="client-status" style="margin-top:0.75rem"></p>
+    </section>
+
+    <section class="set-panel">
+      <h2>Registered clients</h2>
+      {% if clients %}
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Path</th>
+              <th>Status</th>
+              <th>Packets</th>
+              <th>Last success</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in clients %}
+            <tr data-id="{{ c.id }}">
+              <td>{{ c.name }}</td>
+              <td>{{ c.db_path }}</td>
+              <td>
+                <span class="badge badge-{{ c.last_status or 'muted' }}">
+                  <span class="dot"></span>{{ c.last_status or "never" }}
+                </span>
+                {% if not c.enabled %}<span class="badge badge-muted">disabled</span>{% endif %}
+              </td>
+              <td>{{ c.packet_count }}</td>
+              <td>{{ c.last_success_at or "—" }}</td>
+              <td>
+                <div class="actions-row" style="margin-top:0">
+                  <button type="button" class="btn btn-secondary btn-small btn-edit"
+                    data-id="{{ c.id }}"
+                    data-name="{{ c.name }}"
+                    data-path="{{ c.db_path }}"
+                    data-notes="{{ c.notes or '' }}"
+                    data-smb-username="{{ c.smb_username or '' }}"
+                    data-has-password="{{ 1 if c.has_smb_password else 0 }}"
+                    data-enabled="{{ 1 if c.enabled else 0 }}">Edit</button>
+                  <button type="button" class="btn btn-secondary btn-small btn-sync" data-id="{{ c.id }}">Pull</button>
+                  <button type="button" class="btn btn-secondary btn-small btn-toggle" data-id="{{ c.id }}" data-enabled="{{ 1 if c.enabled else 0 }}">
+                    {{ "Disable" if c.enabled else "Enable" }}
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-small btn-delete" data-id="{{ c.id }}">Delete</button>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="summary-empty">No clients registered.</p>
+      {% endif %}
+    </section>
+    </div>
+    {% include "_activity_log.html" %}
+</body>
+</html>

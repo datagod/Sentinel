@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "_head.html" %}
+  <title>Packets · Sentinel Central</title>
+</head>
+<body>
+  <div class="set-app">
+    <div class="set-layout">
+    <div class="set-main">
+    {% include "_nav.html" %}
+
+    <section class="set-panel">
+      <h2>Packets</h2>
+      <p class="hint">Tags apply to every packet with that source MAC, including future pulls.</p>
+      <form class="filter-bar" method="get" action="/packets">
+        <input class="set-input" type="search" name="q" value="{{ q }}" placeholder="MAC, SSID, vendor, tag, client…">
+        <select class="set-select" name="client_id">
+          <option value="">All clients</option>
+          {% for c in clients %}
+          <option value="{{ c.id }}" {% if client_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+          {% endfor %}
+        </select>
+        <select class="set-select" name="tag">
+          <option value="">All tags</option>
+          {% for t in tags %}
+          <option value="{{ t }}" {% if tag == t %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-primary">Filter</button>
+      </form>
+      <datalist id="tag-suggestions">
+        {% for t in tags %}
+        <option value="{{ t }}"></option>
+        {% endfor %}
+      </datalist>
+      <div class="table-wrap" style="margin-top:0.75rem">
+        {% if packets %}
+        <table class="data-table" id="packet-table"
+          data-offset="{{ packets|length }}"
+          data-page-size="{{ page_size }}"
+          data-has-more="{{ 1 if has_more else 0 }}"
+          data-q="{{ q }}"
+          data-client-id="{{ client_id or '' }}"
+          data-tag="{{ tag }}">
+          <thead>
+            <tr>
+              <th></th>
+              <th>Captured</th>
+              <th>Client</th>
+              <th>Source MAC</th>
+              <th>Friendly</th>
+              <th>SSID</th>
+              <th>Type</th>
+              <th>Signal</th>
+              <th>Tags</th>
+            </tr>
+          </thead>
+          <tbody id="packet-tbody">
+            {% for p in packets %}
+            <tr>
+              <td>
+                {% if p.CaptureDate %}
+                <button type="button" class="btn-film" title="Frigate footage"
+                  data-ts="{{ p.CaptureDate | unix }}" data-mac="{{ p.SourceMAC }}"
+                  aria-label="Open Frigate footage">
+                  <img src="/static/img/film-reel.svg" width="18" height="18" alt="">
+                </button>
+                {% endif %}
+              </td>
+              <td>{{ p.CaptureDate | localtime }}</td>
+              <td>{{ p.client_name }}</td>
+              <td><a href="/packets?q={{ p.SourceMAC }}">{{ p.SourceMAC }}</a></td>
+              <td>
+                <div class="friendly-cell">
+                  {% if p.device_friendly == 1 %}
+                  <span class="badge badge-ok"><span class="dot"></span>{{ p.device_name or p.FriendlyName }}</span>
+                  <button type="button" class="btn btn-secondary btn-small btn-set-friendly"
+                    data-mac="{{ p.SourceMAC }}" data-friendly="1">Not friendly</button>
+                  {% else %}
+                  <span class="badge badge-muted">{{ p.device_name or p.FriendlyName or "not friendly" }}</span>
+                  <button type="button" class="btn btn-secondary btn-small btn-set-friendly"
+                    data-mac="{{ p.SourceMAC }}" data-friendly="0">Mark friendly</button>
+                  {% endif %}
+                </div>
+              </td>
+              <td>{{ p.SSID or "—" }}</td>
+              <td>{{ p.DeviceType or p.PacketType or "—" }}</td>
+              <td>{{ p.Signal if p.Signal is not none else "—" }}</td>
+              <td>
+                <div class="tag-cell">
+                  {% for t in p.tag_list %}
+                  <span class="tag-chip">
+                    <a href="/packets?tag={{ t }}">{{ t }}</a>
+                    <button type="button" class="tag-remove" data-mac="{{ p.SourceMAC }}" data-tag="{{ t }}" title="Remove tag" aria-label="Remove {{ t }}">×</button>
+                  </span>
+                  {% endfor %}
+                  <form class="tag-add" data-mac="{{ p.SourceMAC }}">
+                    <input class="set-input tag-input" list="tag-suggestions" placeholder="add tag" aria-label="Add tag">
+                    <button type="submit" class="btn btn-secondary btn-small">Add</button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <p class="hint" id="packet-scroll-status" {% if not has_more %}hidden{% endif %}>Scroll for more packets…</p>
+        <div id="packet-scroll-sentinel" aria-hidden="true"></div>
+        {% else %}
+        <p class="summary-empty">No packets match this filter.</p>
+        {% endif %}
+      </div>
+    </section>
+    </div>
+    {% include "_activity_log.html" %}
+</body>
+</html>

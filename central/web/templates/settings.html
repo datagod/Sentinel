@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "_head.html" %}
+  <title>Settings · Sentinel Central</title>
+</head>
+<body>
+  <div class="set-app">
+    <div class="set-layout">
+    <div class="set-main">
+    {% include "_nav.html" %}
+
+    <section class="set-panel">
+      <h2>Server</h2>
+      <p class="hint">These values come from <code>config.yaml</code>. Restart the server after editing the file.</p>
+      <div class="set-grid" style="margin-top:0.75rem">
+        <div class="set-field">
+          <label>Bind host</label>
+          <input class="set-input" value="{{ settings.get('host', '127.0.0.1') }}" readonly>
+        </div>
+        <div class="set-field">
+          <label>Port</label>
+          <input class="set-input" value="{{ settings.get('port', 8093) }}" readonly>
+        </div>
+        <div class="set-field">
+          <label>Ingest interval (seconds)</label>
+          <input class="set-input" value="{{ interval }}" readonly>
+        </div>
+      </div>
+    </section>
+
+    <section class="set-panel">
+      <h2>Storage</h2>
+      <div class="set-grid">
+        <div class="set-field">
+          <label>Config file</label>
+          <input class="set-input" value="{{ config_path or 'not found — using defaults' }}" readonly>
+        </div>
+        <div class="set-field">
+          <label>Data directory</label>
+          <input class="set-input" value="{{ data_dir }}" readonly>
+        </div>
+        <div class="set-field">
+          <label>Central database</label>
+          <input class="set-input" value="{{ db_path }}" readonly>
+        </div>
+      </div>
+      <p class="hint" style="margin-top:0.75rem">
+        Client <code>packet.db</code> files stay on each Sentinel node. This server copies new
+        <code>Packet</code> rows into the central database when a client path is reachable.
+      </p>
+    </section>
+    </div>
+    {% include "_activity_log.html" %}
+</body>
+</html>

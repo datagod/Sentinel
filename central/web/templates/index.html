@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "_head.html" %}
+  <title>Sentinel Central</title>
+</head>
+<body>
+  <div class="set-app">
+    <div class="set-layout">
+    <div class="set-main">
+    {% include "_nav.html" %}
+
+    <main class="main">
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Network</h2>
+          <span class="panel-count">v{{ version }}</span>
+        </div>
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="label">Clients</div>
+            <div class="value">{{ stats.enabled_clients }}/{{ stats.clients }}</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">Packets</div>
+            <div class="value">{{ stats.packets }}</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">Devices</div>
+            <div class="value">{{ stats.devices }}</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">Last ingest</div>
+            <div class="value value-small">{{ stats.last_ingest or "—" }}</div>
+          </div>
+        </div>
+        <div class="actions-row">
+          <button type="button" class="btn btn-primary" id="btn-ingest">Pull now</button>
+          <a class="btn btn-secondary" href="/clients">Manage clients</a>
+          <a class="btn btn-secondary" href="/packets">Browse packets</a>
+        </div>
+        <p class="hint" id="ingest-status" style="margin-top:0.75rem"></p>
+
+        <div class="panel-head" style="margin-top:1.25rem">
+          <h2>Clients</h2>
+        </div>
+        <div class="log-scroll">
+          {% if clients %}
+          <ul class="study-list">
+            {% for c in clients %}
+            <li class="study-item">
+              <div class="study-item-title">
+                <span class="badge badge-{{ c.last_status or 'muted' }}">
+                  <span class="dot"></span>{{ c.last_status or "never" }}
+                </span>
+                {{ c.name }}
+              </div>
+              <div class="study-item-meta">
+                {{ c.packet_count }} packets
+                · last id {{ c.last_source_id or 0 }}
+                · {{ c.last_success_at or "not ingested" }}
+              </div>
+              {% if c.last_error %}
+              <div class="study-item-desc">{{ c.last_error }}</div>
+              {% endif %}
+            </li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          <p class="summary-empty">No clients yet. Add one on the Clients page.</p>
+          {% endif %}
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Recent packets</h2>
+          <a class="btn btn-secondary btn-small" href="/packets">View all</a>
+        </div>
+        <div class="log-scroll table-wrap">
+          {% if packets %}
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Client</th>
+                <th>MAC</th>
+                <th>SSID</th>
+                <th>Type</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in packets %}
+              <tr>
+                <td>{{ (p.CaptureDate or p.ingested_at) | localtime }}</td>
+                <td>{{ p.client_name }}</td>
+                <td><a href="/packets?q={{ p.SourceMAC }}">{{ p.SourceMAC }}</a></td>
+                <td>{{ p.SSID or "—" }}</td>
+                <td>{{ p.DeviceType or p.PacketType or "—" }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <p class="summary-empty">No packets in the central database yet. Connect a client and pull records.</p>
+          {% endif %}
+        </div>
+      </section>
+    </main>
+    </div>
+    {% include "_activity_log.html" %}
+</body>
+</html>

@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "_head.html" %}
+  <title>Devices · Sentinel Central</title>
+</head>
+<body>
+  <div class="set-app">
+    <div class="set-layout">
+    <div class="set-main">
+    {% include "_nav.html" %}
+
+    <section class="set-panel">
+      <h2>Devices</h2>
+      <p class="hint">Tags apply to this MAC and to every packet with that source address, including future pulls.</p>
+      <form class="filter-bar" method="get" action="/devices">
+        <input class="set-input" type="search" name="q" value="{{ q }}" placeholder="MAC, name, vendor, IP, tag…">
+        <select class="set-select" name="friendly">
+          <option value="" {% if not friendly %}selected{% endif %}>All devices</option>
+          <option value="1" {% if friendly == '1' %}selected{% endif %}>Friendly only</option>
+          <option value="0" {% if friendly == '0' %}selected{% endif %}>Unknown only</option>
+        </select>
+        <select class="set-select" name="tag">
+          <option value="">All tags</option>
+          {% for t in tags %}
+          <option value="{{ t }}" {% if tag == t %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-primary">Filter</button>
+      </form>
+      <datalist id="tag-suggestions">
+        {% for t in tags %}
+        <option value="{{ t }}"></option>
+        {% endfor %}
+      </datalist>
+      <div class="table-wrap" style="margin-top:0.75rem">
+        {% if devices %}
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th>Name</th>
+              <th>MAC</th>
+              <th>IP</th>
+              <th>Vendor</th>
+              <th>Type</th>
+              <th>Source</th>
+              <th>Packets</th>
+              <th>Tags</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for d in devices %}
+            <tr>
+              <td>
+                {% if d.friendly %}
+                <span class="badge badge-ok"><span class="dot"></span>friendly</span>
+                {% else %}
+                <span class="badge badge-muted">not friendly</span>
+                {% endif %}
+              </td>
+              <td>
+                <form class="friendly-name-form" data-mac="{{ d.mac }}" data-friendly="{{ 1 if d.friendly else 0 }}">
+                  <input class="set-input name-input" value="{{ d.name or '' }}" placeholder="device name" aria-label="Friendly name">
+                </form>
+              </td>
+              <td><a href="/packets?q={{ d.mac }}">{{ d.mac }}</a></td>
+              <td>{{ d.ip_addresses or "—" }}</td>
+              <td>{{ d.vendor or "—" }}</td>
+              <td>{{ d.device_type or "—" }}</td>
+              <td>{{ d.source or "—" }}</td>
+              <td>{{ d.packets }}</td>
+              <td>
+                <div class="tag-cell">
+                  {% for t in d.tag_list %}
+                  <span class="tag-chip">
+                    <a href="/devices?tag={{ t }}">{{ t }}</a>
+                    <button type="button" class="tag-remove" data-mac="{{ d.mac }}" data-tag="{{ t }}" title="Remove tag" aria-label="Remove {{ t }}">×</button>
+                  </span>
+                  {% endfor %}
+                  <form class="tag-add" data-mac="{{ d.mac }}">
+                    <input class="set-input tag-input" list="tag-suggestions" placeholder="add tag" aria-label="Add tag">
+                    <button type="submit" class="btn btn-secondary btn-small">Add</button>
+                  </form>
+                </div>
+              </td>
+              <td>
+                <button type="button" class="btn btn-secondary btn-small btn-set-friendly"
+                  data-mac="{{ d.mac }}"
+                  data-friendly="{{ 1 if d.friendly else 0 }}">
+                  {{ "Mark not friendly" if d.friendly else "Mark friendly" }}
+                </button>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <p class="summary-empty">No devices match this filter.</p>
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="set-panel">
+      <h2>Import from Fing</h2>
+      <p class="hint">Paste a Fing JSON device export. Devices are stored as friendly and tagged <code>Imported from Fing</code>.</p>
+      <textarea class="set-textarea" id="fing-json" style="min-height:10rem;margin-top:0.75rem" placeholder='[{"mac_address":"...","best_name":"..."}]'></textarea>
+      <div class="actions-row">
+        <button type="button" class="btn btn-primary" id="btn-import-fing">Import Fing devices</button>
+      </div>
+      <p class="hint" id="fing-status" style="margin-top:0.75rem"></p>
+    </section>
+    </div>
+    {% include "_activity_log.html" %}
+</body>
+</html>

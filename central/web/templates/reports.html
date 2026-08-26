@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "_head.html" %}
+  <title>Reports · Sentinel Central</title>
+</head>
+<body>
+  <div class="set-app">
+    <div class="set-layout">
+    <div class="set-main">
+    {% include "_nav.html" %}
+
+    <section class="set-panel">
+      <h2>Recent Suspicious Activity</h2>
+      <p class="hint">Non-friendly devices with packet traffic in the selected window, newest first.</p>
+      <form class="filter-bar" method="get" action="/reports">
+        <label class="set-field">
+          <span>Lookback</span>
+          <select class="set-select" name="hours" onchange="this.form.submit()">
+            {% for h in hour_choices %}
+            <option value="{{ h }}" {% if hours == h %}selected{% endif %}>
+              {% if h == 168 %}7 days{% else %}{{ h }} hour{{ '' if h == 1 else 's' }}{% endif %}
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+        <span class="panel-count">{{ rows|length }} device{{ '' if rows|length == 1 else 's' }}</span>
+      </form>
+      <div class="table-wrap" style="margin-top:0.75rem">
+        {% if rows %}
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Last seen</th>
+              <th>MAC</th>
+              <th>Name</th>
+              <th>Vendor</th>
+              <th>Type</th>
+              <th>SSID</th>
+              <th>Packets</th>
+              <th>Signal</th>
+              <th>Clients</th>
+              <th>Tags</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for d in rows %}
+            <tr>
+              <td>{{ d.last_seen | localtime }}</td>
+              <td><a href="/packets?q={{ d.mac }}">{{ d.mac }}</a></td>
+              <td>{{ d.name or "—" }}</td>
+              <td>{{ d.vendor or "—" }}</td>
+              <td>{{ d.device_type or "—" }}</td>
+              <td>{{ d.ssids or "—" }}</td>
+              <td>{{ d.packets }}</td>
+              <td>
+                {% if d.strongest_signal is not none %}
+                  {{ d.strongest_signal }}
+                  {% if d.weakest_signal is not none and d.weakest_signal != d.strongest_signal %}
+                    to {{ d.weakest_signal }}
+                  {% endif %}
+                {% else %}—{% endif %}
+              </td>
+              <td>{{ d.clients or "—" }}</td>
+              <td>
+                {% for t in d.tag_list %}
+                <span class="tag-chip"><a href="/devices?tag={{ t }}">{{ t }}</a></span>
+                {% else %}
+                —
+                {% endfor %}
+              </td>
+              <td>
+                <button type="button" class="btn btn-secondary btn-small btn-set-friendly"
+                  data-mac="{{ d.mac }}" data-friendly="0">Mark friendly</button>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <p class="summary-empty">No non-friendly devices with traffic in the last {{ hours }} hour{{ '' if hours == 1 else 's' }}.</p>
+        {% endif %}
+      </div>
+    </section>
+    </div>
+    {% include "_activity_log.html" %}
+</body>
+</html>

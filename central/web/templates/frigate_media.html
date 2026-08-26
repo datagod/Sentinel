@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "_head.html" %}
+  <title>Frigate · {{ local_ts }}</title>
+</head>
+<body>
+  <div class="set-app">
+    <header class="header">
+      <h1 class="brand-title">
+        <img src="/static/img/sentinel-central-icon.svg" alt="" class="brand-icon" width="32" height="32">
+        Sentinel Central
+      </h1>
+      <p class="subtitle">Frigate footage for {{ local_ts }}{% if mac %} · {{ mac }}{% endif %} · starts {{ lead_seconds }}s early, ±{{ pad_seconds }}s{% if events %} · {{ events|length }} detection{{ '' if events|length == 1 else 's' }}{% endif %}{% if reviews %} · {{ reviews|length }} AI summar{{ 'y' if reviews|length == 1 else 'ies' }}{% endif %}</p>
+      {% if from_local %}
+      <p class="hint">Nearest detection {{ nearest_dir }} the packet time ({{ from_local }}){% if nearest_delta is not none %} · {{ (nearest_delta / 60)|round(1) }} min away{% endif %}</p>
+      {% endif %}
+    </header>
+
+    {% if error %}
+    <section class="set-panel">
+      <p class="status-line error">{{ error }}</p>
+    </section>
+    {% endif %}
+
+    <section class="set-panel ai-panel{% if not reviews %} ai-panel-empty{% endif %}">
+      <h2>AI detections</h2>
+      {% if reviews %}
+      <p class="hint">Frigate GenAI summaries for cameras in this window.</p>
+      {% for rv in reviews %}
+      <article class="ai-block">
+        <div class="panel-head">
+          <h2>{{ rv.camera }}{% if rv.severity %} · {{ rv.severity }}{% endif %}</h2>
+          <span class="panel-count">
+            {% if rv.sub_labels %}{{ rv.sub_labels|join(", ") }}{% elif rv.objects %}{{ rv.objects|join(", ") }}{% endif %}
+          </span>
+        </div>
+        <p class="ai-time">{{ rv.start_time | localtime }}{% if rv.end_time %} – {{ rv.end_time | localtime }}{% endif %}</p>
+        {% if rv.title or rv.summary or rv.scene or rv.observations %}
+          {% if rv.title %}<p class="ai-title">{{ rv.title }}</p>{% endif %}
+          {% if rv.summary %}<p class="ai-summary">{{ rv.summary }}</p>{% endif %}
+          {% if rv.scene %}<p class="ai-body">{{ rv.scene }}</p>{% endif %}
+          {% if rv.observations %}
+          <ul class="ai-obs">
+            {% for o in rv.observations %}
+            <li>{{ o }}</li>
+            {% endfor %}
+          </ul>
+          {% endif %}
+          {% if rv.concerns %}<p class="status-line warn">{{ rv.concerns }}</p>{% endif %}
+        {% else %}
+          <p class="summary-empty">No A.I. Summary</p>
+        {% endif %}
+      </article>
+      {% endfor %}
+      {% else %}
+      <p class="summary-empty">No A.I. Summary</p>
+      <div class="actions-row" style="margin-top:0.5rem">
+        <button type="button" class="btn btn-primary btn-small" id="btn-nearest-event"
+          data-ts="{{ packet_ts }}">Nearest event</button>
+      </div>
+      <p class="hint" id="nearest-status" style="margin-top:0.4rem"></p>
+      {% endif %}
+    </section>
+
+    {% if events %}
+    <section class="set-panel" style="margin-bottom:1rem">
+      <h2>Detections</h2>
+      <p class="hint">Frigate objects in this window — these cameras are the best match.</p>
+    </section>
+    <div class="camera-grid">
+      {% for ev in events %}
+      <section class="set-panel camera-card">
+        <div class="panel-head">
+          <h2>{{ ev.camera }} · {{ ev.label }}{% if ev.sub_label %} ({{ ev.sub_label }}){% endif %}</h2>
+          <span class="panel-count">{% if ev.score %}{{ (ev.score * 100)|round(0) }}%{% endif %}</span>
+        </div>
+        <p class="ai-time">{{ ev.start_time | localtime }}{% if ev.end_time %} – {{ ev.end_time | localtime }}{% endif %}</p>
+        {% if ev.has_snapshot %}
+        <img class="camera-shot" src="{{ ev.snapshot }}" alt="{{ ev.label }} snapshot">
+        {% endif %}
+        {% if ev.has_clip %}
+        <video class="camera-clip" controls preload="none" poster="{{ ev.snapshot if ev.has_snapshot else ev.thumbnail }}">
+          <source src="{{ ev.clip }}" type="video/mp4">
+        </video>
+        {% endif %}
+        {% if ev.description %}
+        <p class="ai-body" style="margin-top:0.6rem">{{ ev.description }}</p>
+        {% else %}
+        <p class="summary-empty" style="margin-top:0.6rem">No A.I. Summary</p>
+        {% endif %}
+      </section>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% set rec_cameras = detection_cameras if (events or reviews) else cameras %}
+    {% if rec_cameras %}
+    <section class="set-panel" style="margin:1rem 0 0.75rem">
+      <h2>{% if events %}Cameras with detections{% else %}Cameras{% endif %}</h2>
+    </section>
+    <div class="camera-grid">
+      {% for cam in rec_cameras %}
+      <section class="set-panel camera-card">
+        <div class="panel-head">
+          <h2>{{ cam.camera }}</h2>
+          <span class="panel-count">{{ cam.segments }} segment{{ '' if cam.segments == 1 else 's' }}</span>
+        </div>
+        <img class="camera-shot" src="{{ cam.snapshot }}" alt="{{ cam.camera }} snapshot">
+        <video class="camera-clip" controls preload="none" poster="{{ cam.snapshot }}">
+          <source src="{{ cam.clip }}" type="video/mp4">
+        </video>
+      </section>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if other_cameras %}
+    <details class="set-panel" style="margin-top:1rem">
+      <summary class="panel-head" style="cursor:pointer">
+        <h2>Other cameras (no detection)</h2>
+        <span class="panel-count">{{ other_cameras|length }}</span>
+      </summary>
+      <div class="camera-grid" style="margin-top:0.75rem">
+        {% for cam in other_cameras %}
+        <section class="camera-card">
+          <div class="panel-head">
+            <h2>{{ cam.camera }}</h2>
+            <span class="panel-count">{{ cam.segments }} segment{{ '' if cam.segments == 1 else 's' }}</span>
+          </div>
+          <img class="camera-shot" src="{{ cam.snapshot }}" alt="{{ cam.camera }} snapshot">
+          <video class="camera-clip" controls preload="none" poster="{{ cam.snapshot }}">
+            <source src="{{ cam.clip }}" type="video/mp4">
+          </video>
+        </section>
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
+
+    {% if not error and not events and not cameras %}
+    <section class="set-panel">
+      <p class="summary-empty">No Frigate recordings or detections found for this time window.</p>
+    </section>
+    {% endif %}
+  </div>
+  {% if not reviews %}
+  <script>
+    if (window.opener && !document.getElementById("btn-nearest-event")) {
+      window.resizeTo(1024, 740);
+    }
+    document.getElementById("btn-nearest-event")?.addEventListener("click", async (ev) => {
+      const btn = ev.currentTarget;
+      const ts = btn.dataset.ts;
+      const status = document.getElementById("nearest-status");
+      btn.disabled = true;
+      if (status) status.textContent = "Searching Frigate…";
+      try {
+        const res = await fetch(`/api/frigate/nearest?ts=${encodeURIComponent(ts)}`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || res.statusText);
+        const params = new URLSearchParams(window.location.search);
+        const mac = params.get("mac") || "";
+        const next = new URLSearchParams({
+          ts: String(data.ts),
+          from_ts: ts,
+          nearest_delta: String(data.delta_seconds || 0),
+          nearest_dir: data.direction === "after" ? "after" : "before",
+        });
+        if (mac) next.set("mac", mac);
+        window.location.search = next.toString();
+      } catch (err) {
+        if (status) {
+          status.textContent = err.message || "No nearby detections.";
+          status.className = "status-line error";
+        }
+        btn.disabled = false;
+      }
+    });
+  </script>
+  {% endif %}
+</body>
+</html>

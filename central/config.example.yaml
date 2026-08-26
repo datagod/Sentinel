@@ -1,0 +1,21 @@
+host: 127.0.0.1
+port: 8093
+data_dir: data
+ingest_interval_seconds: 60
+
+frigate:
+  base_url: http://127.0.0.1:5000
+  pad_seconds: 15
+  lead_seconds: 5
+
+# Each client is a Sentinel installation with its own packet.db.
+# When the client is on the network, set db_path to the reachable SQLite file.
+clients:
+  - name: patio-pi
+    db_path: /mnt/sentinel/patio/packet.db
+    notes: Patio Raspberry Pi
+    enabled: true
+  - name: driveway-pi
+    db_path: /mnt/sentinel/driveway/packet.db
+    notes: Driveway sensor
+    enabled: true

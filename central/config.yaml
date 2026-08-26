@@ -1,0 +1,22 @@
+host: 127.0.0.1
+port: 8093
+data_dir: data
+ingest_interval_seconds: 60
+
+frigate:
+  base_url: http://127.0.0.1:5000
+  pad_seconds: 15
+  lead_seconds: 5
+
+# Client Sentinel installations. Paths are as seen from this central server
+# (local disk, SSHFS, NFS, or a copied packet.db). Clients that are offline
+# are skipped until their database is reachable again.
+clients:
+  - name: local-dev
+    db_path: /home/bill/sentinel/packet.db
+    notes: Example local sensor — update or remove in the web UI
+    enabled: false
+  - name: 192.168.0.164
+    db_path: smb://192.168.0.164/sentinel/packet.db
+    notes: Patio / Pi sensor over SMB
+    enabled: true
