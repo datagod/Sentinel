@@ -38,7 +38,7 @@ def _get(url: str, timeout: float = 12) -> tuple[int, bytes, str]:
 
 
 def list_cameras(base_url: str, configured: list[str] | None = None) -> list[str]:
-    if configured:
+    if configured is not None:
         return [c for c in configured if CAMERA_RE.match(c)]
     status, body, _ = _get(_url(base_url, "/config"), timeout=8)
     if status != 200:
@@ -46,6 +46,19 @@ def list_cameras(base_url: str, configured: list[str] | None = None) -> list[str
     data = json.loads(body.decode("utf-8"))
     cameras = list((data.get("cameras") or {}).keys())
     return [c for c in cameras if CAMERA_RE.match(c)]
+
+
+def active_cameras(
+    base_url: str,
+    *,
+    configured: list[str] | None = None,
+    exclude: list[str] | None = None,
+) -> list[str]:
+    names = list_cameras(base_url, configured)
+    if exclude:
+        skip = {str(c).strip() for c in exclude if str(c).strip()}
+        names = [n for n in names if n not in skip]
+    return names
 
 
 def camera_recordings(base_url: str, camera: str, start: float, end: float) -> list[dict[str, Any]]:
@@ -70,6 +83,7 @@ def lookup(
     pad_seconds: int = 15,
     cameras: list[str] | None = None,
     lead_seconds: int = 5,
+    exclude_cameras: list[str] | None = None,
 ) -> dict[str, Any]:
     pad = max(5, min(int(pad_seconds), 120))
     lead = max(0, min(int(lead_seconds), 60))
@@ -77,9 +91,12 @@ def lookup(
     snapshot_ts = ts - lead
     start = ts - pad - lead
     end = ts + pad
-    names = list_cameras(base_url, cameras)
-    events = events_in_range(base_url, start, end)
-    reviews = reviews_in_range(base_url, start, end)
+    names = active_cameras(base_url, configured=cameras, exclude=exclude_cameras)
+    allowed = set(names)
+    raw_events = events_in_range(base_url, start, end) if names else []
+    raw_reviews = reviews_in_range(base_url, start, end) if names else []
+    events = [e for e in raw_events if e.get("camera") in allowed]
+    reviews = [r for r in raw_reviews if r.get("camera") in allowed]
     detected = {e["camera"] for e in events} | {r["camera"] for r in reviews}
     found: list[dict[str, Any]] = []
     for name in names:
@@ -172,12 +189,19 @@ def _first_event(
     after: float | None = None,
     before: float | None = None,
     sort: str,
+    cameras: list[str] | None = None,
 ) -> dict[str, Any] | None:
-    query: dict[str, Any] = {"limit": 1, "include_thumbnails": 0, "sort": sort}
+    query: dict[str, Any] = {
+        "limit": 20 if cameras else 1,
+        "include_thumbnails": 0,
+        "sort": sort,
+    }
     if after is not None:
         query["after"] = after
     if before is not None:
         query["before"] = before
+    if cameras:
+        query["cameras"] = ",".join(cameras)
     status, body, _ = _get(_url(base_url, "/events", query), timeout=10)
     if status != 200:
         return None
@@ -187,12 +211,28 @@ def _first_event(
         return None
     if not isinstance(raw, list) or not raw:
         return None
-    return _event_from_raw(raw[0])
+    allowed = set(cameras) if cameras is not None else None
+    for item in raw:
+        parsed = _event_from_raw(item)
+        if not parsed:
+            continue
+        if allowed is not None and parsed.get("camera") not in allowed:
+            continue
+        return parsed
+    return None
 
 
-def nearest_event(base_url: str, ts: float) -> dict[str, Any] | None:
-    later = _first_event(base_url, after=ts, sort="date_asc")
-    earlier = _first_event(base_url, before=ts, sort="date_desc")
+def nearest_event(
+    base_url: str,
+    ts: float,
+    exclude_cameras: list[str] | None = None,
+) -> dict[str, Any] | None:
+    allowed = active_cameras(base_url, exclude=exclude_cameras)
+    if exclude_cameras is not None and not allowed:
+        return None
+    cameras = allowed if exclude_cameras else None
+    later = _first_event(base_url, after=ts, sort="date_asc", cameras=cameras)
+    earlier = _first_event(base_url, before=ts, sort="date_desc", cameras=cameras)
     candidates: list[tuple[float, str, dict[str, Any]]] = []
     for event, direction in ((later, "after"), (earlier, "before")):
         if not event or event.get("start_time") is None:

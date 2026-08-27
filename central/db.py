@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 
@@ -31,6 +32,17 @@ PACKET_COLUMNS = (
     "Longitude",
     "Signal",
 )
+
+DEVICE_TYPE_ALIASES = {
+    "Mobile Phone (Probe Request)": "Mobile Phone",
+}
+
+
+def cleanse_device_type(value: Any) -> Any:
+    """Normalize client-side device type labels stored on Packet rows."""
+    if not isinstance(value, str):
+        return value
+    return DEVICE_TYPE_ALIASES.get(value.strip(), value)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS Client (
@@ -110,6 +122,9 @@ CREATE TABLE IF NOT EXISTS Device (
     ip_addresses TEXT,
     state TEXT,
     friendly INTEGER NOT NULL DEFAULT 0,
+    tracked INTEGER NOT NULL DEFAULT 0,
+    presence TEXT,
+    last_signal INTEGER,
     source TEXT,
     notes TEXT,
     first_seen TEXT,
@@ -149,6 +164,80 @@ CREATE TABLE IF NOT EXISTS DeviceTag (
 CREATE INDEX IF NOT EXISTS i_packettag_packet ON PacketTag(packet_id);
 CREATE INDEX IF NOT EXISTS i_packettag_tag ON PacketTag(tag_id);
 CREATE INDEX IF NOT EXISTS i_devicetag_mac ON DeviceTag(mac);
+
+CREATE TABLE IF NOT EXISTS FrigateSetting (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    base_url TEXT NOT NULL,
+    pad_seconds INTEGER NOT NULL DEFAULT 15,
+    lead_seconds INTEGER NOT NULL DEFAULT 5,
+    updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS FrigateCamera (
+    name TEXT PRIMARY KEY,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    seen_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS WigleSetting (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    enabled INTEGER NOT NULL DEFAULT 0,
+    base_url TEXT NOT NULL,
+    api_name TEXT,
+    api_token TEXT,
+    updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS WigleCache (
+    kind TEXT NOT NULL,
+    query TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    fetched_at TEXT NOT NULL,
+    PRIMARY KEY (kind, query)
+);
+
+CREATE TABLE IF NOT EXISTS ChatterboxSetting (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    enabled INTEGER NOT NULL DEFAULT 1,
+    base_url TEXT NOT NULL,
+    voice_mode TEXT NOT NULL DEFAULT 'clone',
+    voice TEXT,
+    output_format TEXT NOT NULL DEFAULT 'wav',
+    timeout INTEGER NOT NULL DEFAULT 60,
+    cooldown_seconds INTEGER NOT NULL DEFAULT 120,
+    updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS VoiceAlert (
+    id TEXT PRIMARY KEY,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    template TEXT NOT NULL,
+    min_packets INTEGER,
+    window_minutes INTEGER,
+    quiet_minutes INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS VoiceAlertLog (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    alert_id TEXT NOT NULL,
+    mac TEXT,
+    text TEXT NOT NULL,
+    audio_path TEXT,
+    spoken_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS VoiceAlertQueue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    alert_id TEXT NOT NULL,
+    mac TEXT,
+    text TEXT NOT NULL,
+    audio_path TEXT,
+    created_at TEXT NOT NULL,
+    played INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS i_voicealertlog_key ON VoiceAlertLog(alert_id, mac, spoken_at);
+CREATE INDEX IF NOT EXISTS i_voicealertqueue_played ON VoiceAlertQueue(played, id);
 """
 
 
@@ -164,13 +253,750 @@ def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
     _ensure_column(conn, "Client", "smb_username", "TEXT")
     _ensure_column(conn, "Client", "smb_password", "TEXT")
+    _ensure_column(conn, "VoiceAlert", "min_packets", "INTEGER")
+    _ensure_column(conn, "VoiceAlert", "window_minutes", "INTEGER")
+    _ensure_column(conn, "VoiceAlert", "quiet_minutes", "INTEGER")
+    _ensure_column(conn, "Device", "tracked", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_column(conn, "Device", "presence", "TEXT")
+    _ensure_column(conn, "Device", "last_signal", "INTEGER")
+    conn.execute("CREATE INDEX IF NOT EXISTS i_device_tracked ON Device(tracked)")
+    _cleanse_device_types(conn)
+    _seed_voice_alerts(conn)
     conn.commit()
+
+
+def _cleanse_device_types(conn: sqlite3.Connection) -> None:
+    for old, new in DEVICE_TYPE_ALIASES.items():
+        conn.execute("UPDATE Packet SET DeviceType = ? WHERE DeviceType = ?", (new, old))
+        conn.execute("UPDATE Device SET device_type = ? WHERE device_type = ?", (new, old))
+
+
+VOICE_ALERT_TYPES = (
+    {
+        "id": "new_phone",
+        "label": "New Phone Detected",
+        "template": "New phone detected.",
+        "default": 1,
+        "hint": "Spoken the first time a mobile phone MAC appears.",
+    },
+    {
+        "id": "intruder",
+        "label": "Intruder Alert",
+        "template": "Intruder alert.",
+        "default": 1,
+        "hint": "Spoken when a non-friendly device meets the packet threshold below.",
+        "min_packets": 5,
+        "window_minutes": 5,
+        "has_threshold": True,
+    },
+    {
+        "id": "friendly",
+        "label": "Friendly Device Detected",
+        "template": "Friendly device {name} detected.",
+        "default": 0,
+        "hint": "Spoken when a friendly device is seen, using its name, only after it has been absent for the minutes below.",
+        "quiet_minutes": 30,
+        "has_quiet_period": True,
+        "quiet_label": "Only announce if not seen for",
+    },
+    {
+        "id": "left_premises",
+        "label": "Left Premises",
+        "template": "{name} has left the premises.",
+        "default": 1,
+        "hint": "Spoken when a tracked device has no packets for the minutes below. Turn on Track for a device on the Devices page.",
+        "quiet_minutes": 15,
+        "has_quiet_period": True,
+        "quiet_label": "No packets for",
+        "template_editable": True,
+    },
+    {
+        "id": "entered_premises",
+        "label": "Entered Premises",
+        "template": "{name} has entered the premises.",
+        "default": 1,
+        "hint": "Spoken when a tracked device is seen again after being marked away. Uses the absence window on Left Premises.",
+        "template_editable": True,
+    },
+    {
+        "id": "new_device",
+        "label": "New Device Detected",
+        "template": "New device detected.",
+        "default": 0,
+        "hint": "Spoken the first time any other MAC appears.",
+    },
+)
 
 
 def _ensure_column(conn: sqlite3.Connection, table: str, name: str, decl: str) -> None:
     cols = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
     if name not in cols:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+
+
+def ensure_frigate_settings(
+    conn: sqlite3.Connection,
+    *,
+    base_url: str,
+    pad_seconds: int,
+    lead_seconds: int,
+    cameras: list[str] | None = None,
+) -> None:
+    existing = conn.execute("SELECT id FROM FrigateSetting WHERE id = 1").fetchone()
+    if existing:
+        return
+    now = _now()
+    conn.execute(
+        """
+        INSERT INTO FrigateSetting (id, base_url, pad_seconds, lead_seconds, updated_at)
+        VALUES (1, ?, ?, ?, ?)
+        """,
+        (base_url, int(pad_seconds), int(lead_seconds), now),
+    )
+    for name in cameras or []:
+        label = str(name).strip()
+        if not label:
+            continue
+        conn.execute(
+            "INSERT OR IGNORE INTO FrigateCamera (name, enabled, seen_at) VALUES (?, 1, ?)",
+            (label, now),
+        )
+    conn.commit()
+
+
+def get_frigate_settings(conn: sqlite3.Connection) -> dict[str, Any] | None:
+    row = conn.execute("SELECT * FROM FrigateSetting WHERE id = 1").fetchone()
+    if not row:
+        return None
+    cameras = [
+        {"name": r["name"], "enabled": bool(r["enabled"]), "seen_at": r["seen_at"]}
+        for r in conn.execute(
+            "SELECT name, enabled, seen_at FROM FrigateCamera ORDER BY name COLLATE NOCASE"
+        )
+    ]
+    return {
+        "base_url": row["base_url"],
+        "pad_seconds": int(row["pad_seconds"]),
+        "lead_seconds": int(row["lead_seconds"]),
+        "updated_at": row["updated_at"],
+        "cameras": cameras,
+        "disabled_cameras": [c["name"] for c in cameras if not c["enabled"]],
+    }
+
+
+def save_frigate_settings(
+    conn: sqlite3.Connection,
+    *,
+    base_url: str,
+    pad_seconds: int,
+    lead_seconds: int,
+) -> dict[str, Any]:
+    now = _now()
+    conn.execute(
+        """
+        INSERT INTO FrigateSetting (id, base_url, pad_seconds, lead_seconds, updated_at)
+        VALUES (1, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            base_url = excluded.base_url,
+            pad_seconds = excluded.pad_seconds,
+            lead_seconds = excluded.lead_seconds,
+            updated_at = excluded.updated_at
+        """,
+        (base_url, int(pad_seconds), int(lead_seconds), now),
+    )
+    conn.commit()
+    saved = get_frigate_settings(conn)
+    if not saved:
+        raise RuntimeError("Frigate settings were not saved")
+    return saved
+
+
+def upsert_frigate_cameras(
+    conn: sqlite3.Connection, names: list[str]
+) -> list[dict[str, Any]]:
+    now = _now()
+    live: list[str] = []
+    for raw in names:
+        name = str(raw).strip()
+        if not name:
+            continue
+        live.append(name)
+        conn.execute(
+            """
+            INSERT INTO FrigateCamera (name, enabled, seen_at)
+            VALUES (?, 1, ?)
+            ON CONFLICT(name) DO UPDATE SET seen_at = excluded.seen_at
+            """,
+            (name, now),
+        )
+    conn.commit()
+    live_set = set(live)
+    return [
+        {
+            "name": r["name"],
+            "enabled": bool(r["enabled"]),
+            "seen_at": r["seen_at"],
+            "live": r["name"] in live_set,
+        }
+        for r in conn.execute(
+            "SELECT name, enabled, seen_at FROM FrigateCamera ORDER BY name COLLATE NOCASE"
+        )
+    ]
+
+
+def set_frigate_camera_enabled(
+    conn: sqlite3.Connection, name: str, enabled: bool
+) -> dict[str, Any]:
+    label = str(name).strip()
+    if not label:
+        raise ValueError("camera name is required")
+    now = _now()
+    conn.execute(
+        """
+        INSERT INTO FrigateCamera (name, enabled, seen_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(name) DO UPDATE SET
+            enabled = excluded.enabled,
+            seen_at = COALESCE(FrigateCamera.seen_at, excluded.seen_at)
+        """,
+        (label, 1 if enabled else 0, now),
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT name, enabled, seen_at FROM FrigateCamera WHERE name = ?",
+        (label,),
+    ).fetchone()
+    return {
+        "name": row["name"],
+        "enabled": bool(row["enabled"]),
+        "seen_at": row["seen_at"],
+    }
+
+
+def ensure_wigle_settings(
+    conn: sqlite3.Connection,
+    *,
+    enabled: bool = False,
+    base_url: str = "https://api.wigle.net",
+    api_name: str = "",
+    api_token: str = "",
+) -> None:
+    existing = conn.execute("SELECT id FROM WigleSetting WHERE id = 1").fetchone()
+    if existing:
+        return
+    conn.execute(
+        """
+        INSERT INTO WigleSetting (id, enabled, base_url, api_name, api_token, updated_at)
+        VALUES (1, ?, ?, ?, ?, ?)
+        """,
+        (
+            1 if enabled else 0,
+            base_url,
+            api_name,
+            api_token,
+            _now(),
+        ),
+    )
+    conn.commit()
+
+
+def get_wigle_settings(conn: sqlite3.Connection, *, include_secret: bool = False) -> dict[str, Any] | None:
+    row = conn.execute("SELECT * FROM WigleSetting WHERE id = 1").fetchone()
+    if not row:
+        return None
+    token = row["api_token"] or ""
+    data = {
+        "enabled": bool(row["enabled"]),
+        "base_url": row["base_url"] or "https://api.wigle.net",
+        "api_name": row["api_name"] or "",
+        "has_api_token": bool(token),
+        "updated_at": row["updated_at"],
+    }
+    if include_secret:
+        data["api_token"] = token
+    return data
+
+
+def save_wigle_settings(
+    conn: sqlite3.Connection,
+    *,
+    enabled: bool,
+    base_url: str,
+    api_name: str,
+    api_token: str | None = None,
+) -> dict[str, Any]:
+    existing = get_wigle_settings(conn, include_secret=True) or {}
+    token = existing.get("api_token") or ""
+    if api_token is not None:
+        incoming = str(api_token).strip()
+        if incoming:
+            token = incoming
+    now = _now()
+    conn.execute(
+        """
+        INSERT INTO WigleSetting (id, enabled, base_url, api_name, api_token, updated_at)
+        VALUES (1, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            enabled = excluded.enabled,
+            base_url = excluded.base_url,
+            api_name = excluded.api_name,
+            api_token = excluded.api_token,
+            updated_at = excluded.updated_at
+        """,
+        (
+            1 if enabled else 0,
+            base_url,
+            api_name,
+            token,
+            now,
+        ),
+    )
+    conn.commit()
+    saved = get_wigle_settings(conn)
+    if not saved:
+        raise RuntimeError("WiGLE settings were not saved")
+    return saved
+
+
+def get_wigle_cache(
+    conn: sqlite3.Connection, kind: str, query: str, *, max_age_hours: int = 168
+) -> dict[str, Any] | None:
+    row = conn.execute(
+        """
+        SELECT payload, fetched_at FROM WigleCache
+         WHERE kind = ? AND query = ?
+           AND datetime(fetched_at) >= datetime('now', ?)
+        """,
+        (kind, query, f"-{max(1, int(max_age_hours))} hours"),
+    ).fetchone()
+    if not row:
+        return None
+    try:
+        data = json.loads(row["payload"])
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    data["cached"] = True
+    data["fetched_at"] = row["fetched_at"]
+    return data
+
+
+def save_wigle_cache(
+    conn: sqlite3.Connection, kind: str, query: str, payload: dict[str, Any]
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO WigleCache (kind, query, payload, fetched_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(kind, query) DO UPDATE SET
+            payload = excluded.payload,
+            fetched_at = excluded.fetched_at
+        """,
+        (kind, query, json.dumps(payload), _now()),
+    )
+    conn.commit()
+
+
+def _seed_voice_alerts(conn: sqlite3.Connection) -> None:
+    for item in VOICE_ALERT_TYPES:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO VoiceAlert
+                (id, enabled, template, min_packets, window_minutes, quiet_minutes)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                item["id"],
+                int(item["default"]),
+                item["template"],
+                item.get("min_packets"),
+                item.get("window_minutes"),
+                item.get("quiet_minutes"),
+            ),
+        )
+        if item.get("has_threshold"):
+            conn.execute(
+                """
+                UPDATE VoiceAlert
+                   SET min_packets = COALESCE(min_packets, ?),
+                       window_minutes = COALESCE(window_minutes, ?)
+                 WHERE id = ?
+                """,
+                (
+                    int(item.get("min_packets") or 5),
+                    int(item.get("window_minutes") or 5),
+                    item["id"],
+                ),
+            )
+        if item.get("has_quiet_period"):
+            conn.execute(
+                """
+                UPDATE VoiceAlert
+                   SET quiet_minutes = COALESCE(quiet_minutes, ?)
+                 WHERE id = ?
+                """,
+                (int(item.get("quiet_minutes") or 30), item["id"]),
+            )
+        if item.get("template_editable"):
+            conn.execute(
+                """
+                UPDATE VoiceAlert
+                   SET template = COALESCE(NULLIF(template, ''), ?)
+                 WHERE id = ?
+                """,
+                (item["template"], item["id"]),
+            )
+
+
+def ensure_chatterbox_settings(
+    conn: sqlite3.Connection,
+    *,
+    enabled: bool,
+    base_url: str,
+    voice_mode: str,
+    voice: str,
+    output_format: str = "wav",
+    timeout: int = 60,
+    cooldown_seconds: int = 120,
+) -> None:
+    existing = conn.execute("SELECT id FROM ChatterboxSetting WHERE id = 1").fetchone()
+    if existing:
+        return
+    conn.execute(
+        """
+        INSERT INTO ChatterboxSetting (
+            id, enabled, base_url, voice_mode, voice, output_format,
+            timeout, cooldown_seconds, updated_at
+        ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            1 if enabled else 0,
+            base_url,
+            voice_mode,
+            voice,
+            output_format,
+            int(timeout),
+            int(cooldown_seconds),
+            _now(),
+        ),
+    )
+    conn.commit()
+
+
+def get_chatterbox_settings(conn: sqlite3.Connection) -> dict[str, Any] | None:
+    row = conn.execute("SELECT * FROM ChatterboxSetting WHERE id = 1").fetchone()
+    if not row:
+        return None
+    alerts = []
+    stored = {
+        r["id"]: dict(r)
+        for r in conn.execute(
+            "SELECT id, enabled, template, min_packets, window_minutes, quiet_minutes FROM VoiceAlert"
+        )
+    }
+    for item in VOICE_ALERT_TYPES:
+        stored_alert = stored.get(item["id"]) or {}
+        min_packets = stored_alert.get("min_packets")
+        window_minutes = stored_alert.get("window_minutes")
+        quiet_minutes = stored_alert.get("quiet_minutes")
+        if item.get("has_threshold"):
+            min_packets = int(min_packets or item.get("min_packets") or 5)
+            window_minutes = int(window_minutes or item.get("window_minutes") or 5)
+        if item.get("has_quiet_period"):
+            quiet_minutes = int(quiet_minutes or item.get("quiet_minutes") or 30)
+        alerts.append(
+            {
+                **item,
+                "enabled": bool(stored_alert["enabled"]) if stored_alert else bool(item["default"]),
+                "template": stored_alert.get("template") or item["template"],
+                "min_packets": min_packets,
+                "window_minutes": window_minutes,
+                "quiet_minutes": quiet_minutes,
+            }
+        )
+    voice_mode = row["voice_mode"] or "clone"
+    voice = row["voice"] or ""
+    return {
+        "enabled": bool(row["enabled"]),
+        "base_url": row["base_url"],
+        "voice_mode": voice_mode,
+        "voice": voice,
+        "reference_audio_filename": voice if voice_mode == "clone" else "",
+        "predefined_voice_id": voice if voice_mode == "predefined" else "",
+        "output_format": row["output_format"] or "wav",
+        "timeout": int(row["timeout"] or 60),
+        "cooldown_seconds": int(row["cooldown_seconds"] or 120),
+        "updated_at": row["updated_at"],
+        "alerts": alerts,
+    }
+
+
+def save_chatterbox_settings(
+    conn: sqlite3.Connection,
+    *,
+    enabled: bool,
+    base_url: str,
+    voice_mode: str,
+    voice: str,
+    output_format: str = "wav",
+    timeout: int = 60,
+    cooldown_seconds: int = 120,
+) -> dict[str, Any]:
+    now = _now()
+    conn.execute(
+        """
+        INSERT INTO ChatterboxSetting (
+            id, enabled, base_url, voice_mode, voice, output_format,
+            timeout, cooldown_seconds, updated_at
+        ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            enabled = excluded.enabled,
+            base_url = excluded.base_url,
+            voice_mode = excluded.voice_mode,
+            voice = excluded.voice,
+            output_format = excluded.output_format,
+            timeout = excluded.timeout,
+            cooldown_seconds = excluded.cooldown_seconds,
+            updated_at = excluded.updated_at
+        """,
+        (
+            1 if enabled else 0,
+            base_url,
+            voice_mode,
+            voice,
+            output_format,
+            int(timeout),
+            int(cooldown_seconds),
+            now,
+        ),
+    )
+    conn.commit()
+    saved = get_chatterbox_settings(conn)
+    if not saved:
+        raise RuntimeError("Chatterbox settings were not saved")
+    return saved
+
+
+def _clamp_alert_threshold(value: Any, *, default: int, lo: int, hi: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(lo, min(parsed, hi))
+
+
+def _sanitize_alert_template(value: Any, default: str) -> str:
+    text = " ".join(str(value or "").strip().split())
+    if not text:
+        return default
+    if len(text) > 200:
+        text = text[:200].rstrip()
+    return text
+
+
+def save_voice_alert(
+    conn: sqlite3.Connection,
+    alert_id: str,
+    *,
+    enabled: bool | None = None,
+    min_packets: Any = None,
+    window_minutes: Any = None,
+    quiet_minutes: Any = None,
+    template: Any = None,
+) -> dict[str, Any]:
+    known = {item["id"]: item for item in VOICE_ALERT_TYPES}
+    spec = known.get(alert_id)
+    if not spec:
+        raise ValueError("unknown alert type")
+    existing = conn.execute(
+        """
+        SELECT enabled, template, min_packets, window_minutes, quiet_minutes
+          FROM VoiceAlert WHERE id = ?
+        """,
+        (alert_id,),
+    ).fetchone()
+    keep_enabled = bool(existing["enabled"]) if existing else bool(spec["default"])
+    new_enabled = keep_enabled if enabled is None else bool(enabled)
+    packets = existing["min_packets"] if existing else spec.get("min_packets")
+    minutes = existing["window_minutes"] if existing else spec.get("window_minutes")
+    quiet = existing["quiet_minutes"] if existing else spec.get("quiet_minutes")
+    phrase = (existing["template"] if existing else None) or spec["template"]
+    if spec.get("template_editable") and template is not None:
+        phrase = _sanitize_alert_template(template, spec["template"])
+    if spec.get("has_threshold"):
+        if min_packets is not None:
+            packets = _clamp_alert_threshold(min_packets, default=5, lo=1, hi=1000)
+        else:
+            packets = _clamp_alert_threshold(packets, default=5, lo=1, hi=1000)
+        if window_minutes is not None:
+            minutes = _clamp_alert_threshold(window_minutes, default=5, lo=1, hi=1440)
+        else:
+            minutes = _clamp_alert_threshold(minutes, default=5, lo=1, hi=1440)
+    if spec.get("has_quiet_period"):
+        quiet_default = int(spec.get("quiet_minutes") or 30)
+        if quiet_minutes is not None:
+            quiet = _clamp_alert_threshold(quiet_minutes, default=quiet_default, lo=1, hi=1440)
+        else:
+            quiet = _clamp_alert_threshold(quiet, default=quiet_default, lo=1, hi=1440)
+    conn.execute(
+        """
+        INSERT INTO VoiceAlert
+            (id, enabled, template, min_packets, window_minutes, quiet_minutes)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            enabled = excluded.enabled,
+            template = excluded.template,
+            min_packets = excluded.min_packets,
+            window_minutes = excluded.window_minutes,
+            quiet_minutes = excluded.quiet_minutes
+        """,
+        (alert_id, 1 if new_enabled else 0, phrase, packets, minutes, quiet),
+    )
+    conn.commit()
+    row = conn.execute(
+        """
+        SELECT id, enabled, template, min_packets, window_minutes, quiet_minutes
+          FROM VoiceAlert WHERE id = ?
+        """,
+        (alert_id,),
+    ).fetchone()
+    return {
+        "id": row["id"],
+        "enabled": bool(row["enabled"]),
+        "template": row["template"],
+        "min_packets": row["min_packets"],
+        "window_minutes": row["window_minutes"],
+        "quiet_minutes": row["quiet_minutes"],
+    }
+
+
+def set_voice_alert_enabled(
+    conn: sqlite3.Connection, alert_id: str, enabled: bool
+) -> dict[str, Any]:
+    return save_voice_alert(conn, alert_id, enabled=enabled)
+
+
+def _normalize_alert_phrase(text: str | None) -> str:
+    return " ".join(str(text or "").strip().lower().split())
+
+
+def voice_alert_on_cooldown(
+    conn: sqlite3.Connection,
+    alert_id: str,
+    mac: str,
+    cooldown_seconds: int,
+    *,
+    text: str | None = None,
+) -> bool:
+    """True if this device or this spoken phrase was already alerted inside the window."""
+    window = max(15, int(cooldown_seconds))
+    phrase = _normalize_alert_phrase(text)
+    row = conn.execute(
+        """
+        SELECT spoken_at FROM VoiceAlertLog
+         WHERE datetime(spoken_at) >= datetime('now', ?)
+           AND (
+                (alert_id = ? AND IFNULL(mac, '') = ?)
+                OR (? != '' AND lower(trim(text)) = ?)
+           )
+         ORDER BY id DESC LIMIT 1
+        """,
+        (f"-{window} seconds", alert_id, mac or "", phrase, phrase),
+    ).fetchone()
+    return row is not None
+
+
+def claim_voice_alert(
+    conn: sqlite3.Connection,
+    *,
+    alert_id: str,
+    mac: str | None,
+    text: str,
+) -> int:
+    """Record the alert immediately so later candidates in this window honor cooldown."""
+    now = _now()
+    cur = conn.execute(
+        """
+        INSERT INTO VoiceAlertLog (alert_id, mac, text, audio_path, spoken_at)
+        VALUES (?, ?, ?, NULL, ?)
+        """,
+        (alert_id, mac, text, now),
+    )
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def enqueue_voice_alert(
+    conn: sqlite3.Connection,
+    *,
+    alert_id: str,
+    mac: str | None,
+    text: str,
+    audio_path: str | None,
+    log_id: int | None = None,
+) -> int:
+    now = _now()
+    if log_id:
+        conn.execute(
+            "UPDATE VoiceAlertLog SET audio_path = ? WHERE id = ?",
+            (audio_path, log_id),
+        )
+    cur = conn.execute(
+        """
+        INSERT INTO VoiceAlertQueue (alert_id, mac, text, audio_path, created_at, played)
+        VALUES (?, ?, ?, ?, ?, 0)
+        """,
+        (alert_id, mac, text, audio_path, now),
+    )
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def record_voice_alert(
+    conn: sqlite3.Connection,
+    *,
+    alert_id: str,
+    mac: str | None,
+    text: str,
+    audio_path: str | None,
+) -> int:
+    log_id = claim_voice_alert(conn, alert_id=alert_id, mac=mac, text=text)
+    return enqueue_voice_alert(
+        conn,
+        alert_id=alert_id,
+        mac=mac,
+        text=text,
+        audio_path=audio_path,
+        log_id=log_id,
+    )
+
+
+def list_pending_voice_alerts(conn: sqlite3.Connection, limit: int = 8) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT * FROM VoiceAlertQueue
+         WHERE played = 0
+         ORDER BY id
+         LIMIT ?
+        """,
+        (max(1, min(limit, 20)),),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_voice_alert_played(conn: sqlite3.Connection, queue_id: int) -> bool:
+    cur = conn.execute(
+        "UPDATE VoiceAlertQueue SET played = 1 WHERE id = ? AND played = 0",
+        (queue_id,),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def get_voice_alert_queue_item(conn: sqlite3.Connection, queue_id: int) -> dict[str, Any] | None:
+    row = conn.execute("SELECT * FROM VoiceAlertQueue WHERE id = ?", (queue_id,)).fetchone()
+    return dict(row) if row else None
 
 
 class Store:
@@ -192,13 +1018,18 @@ class Store:
 
 
 def seed_clients(conn: sqlite3.Connection, clients: list[dict[str, Any]]) -> int:
+    """Insert YAML clients only on first run (empty Client table).
+
+    After that the database is the source of truth — deleting a client in the
+    UI must not be undone on the next process start.
+    """
+    if not clients:
+        return 0
+    existing = conn.execute("SELECT COUNT(*) FROM Client").fetchone()[0]
+    if existing:
+        return 0
     inserted = 0
     for client in clients:
-        existing = conn.execute(
-            "SELECT id FROM Client WHERE name = ?", (client["name"],)
-        ).fetchone()
-        if existing:
-            continue
         conn.execute(
             """
             INSERT INTO Client (name, db_path, notes, smb_username, smb_password, enabled)
@@ -372,6 +1203,7 @@ def dashboard_stats(conn: sqlite3.Connection) -> dict[str, Any]:
     last = conn.execute(
         "SELECT MAX(ingested_at) AS t FROM Packet"
     ).fetchone()["t"]
+    latest_id = conn.execute("SELECT MAX(id) AS n FROM Packet").fetchone()["n"]
     return {
         "clients": clients,
         "enabled_clients": enabled,
@@ -379,6 +1211,7 @@ def dashboard_stats(conn: sqlite3.Connection) -> dict[str, Any]:
         "devices": devices,
         "friendly_devices": friendly,
         "last_ingest": last,
+        "latest_packet_id": int(latest_id or 0),
     }
 
 
@@ -390,6 +1223,8 @@ def recent_packets(
     query: str | None = None,
     client_id: int | None = None,
     tag: str | None = None,
+    source_mac: str | None = None,
+    after_id: int | None = None,
 ) -> list[dict[str, Any]]:
     sql = """
         SELECT p.*, c.name AS client_name,
@@ -406,9 +1241,15 @@ def recent_packets(
          WHERE 1=1
     """
     params: list[Any] = []
+    if after_id:
+        sql += " AND p.id > ?"
+        params.append(int(after_id))
     if client_id:
         sql += " AND p.client_id = ?"
         params.append(client_id)
+    if source_mac:
+        sql += f" AND {_mac_match_sql('p.SourceMAC')} = ?"
+        params.append(_normalize_mac(source_mac))
     if tag:
         sql += """
           AND EXISTS (
@@ -437,9 +1278,11 @@ def recent_packets(
           )
         """
         params.extend([like] * 8)
-    sql += " ORDER BY COALESCE(p.CaptureDate, p.ingested_at) DESC, p.id DESC LIMIT ? OFFSET ?"
+    sql += " ORDER BY COALESCE(p.CaptureDate, p.ingested_at) DESC, p.id DESC LIMIT ?"
     params.append(max(1, min(limit, 500)))
-    params.append(max(0, int(offset)))
+    if not after_id:
+        sql += " OFFSET ?"
+        params.append(max(0, int(offset)))
     rows = []
     for row in conn.execute(sql, params).fetchall():
         item = dict(row)
@@ -448,11 +1291,76 @@ def recent_packets(
     return rows
 
 
+def get_packet(conn: sqlite3.Connection, packet_id: int) -> dict[str, Any] | None:
+    sql = """
+        SELECT p.*, c.name AS client_name,
+               (SELECT GROUP_CONCAT(t.tag, ', ')
+                  FROM PacketTag pt
+                  JOIN Tag t ON t.id = pt.tag_id
+                 WHERE pt.packet_id = p.id) AS tags,
+               (SELECT d.friendly FROM Device d
+                 WHERE d.mac = REPLACE(UPPER(p.SourceMAC), '-', ':')) AS device_friendly,
+               (SELECT d.name FROM Device d
+                 WHERE d.mac = REPLACE(UPPER(p.SourceMAC), '-', ':')) AS device_name
+          FROM Packet p
+          JOIN Client c ON c.id = p.client_id
+         WHERE p.id = ?
+    """
+    row = conn.execute(sql, (packet_id,)).fetchone()
+    if not row:
+        return None
+    item = dict(row)
+    item["tag_list"] = [t for t in str(item.get("tags") or "").split(", ") if t]
+    return item
+
+
+def mac_stats(conn: sqlite3.Connection, mac: str) -> dict[str, Any]:
+    mac_norm = _normalize_mac(mac)
+    row = conn.execute(
+        f"""
+        SELECT
+            COUNT(*) AS packets,
+            MIN(p.CaptureDate) AS first_seen,
+            MAX(p.CaptureDate) AS last_seen,
+            MAX(p.Signal) AS strongest_signal,
+            MIN(p.Signal) AS weakest_signal,
+            MAX(p.SourceVendor) AS vendor,
+            GROUP_CONCAT(DISTINCT NULLIF(p.SSID, '')) AS ssids,
+            GROUP_CONCAT(DISTINCT p.PacketType) AS packet_types,
+            GROUP_CONCAT(DISTINCT p.DeviceType) AS device_types,
+            GROUP_CONCAT(DISTINCT p.Band) AS bands,
+            GROUP_CONCAT(DISTINCT p.Channel) AS channels,
+            GROUP_CONCAT(DISTINCT c.name) AS clients
+        FROM Packet p
+        JOIN Client c ON c.id = p.client_id
+        WHERE {_mac_match_sql("p.SourceMAC")} = ?
+        """,
+        (mac_norm,),
+    ).fetchone()
+    data = dict(row) if row else {}
+    tags = [
+        r["tag"]
+        for r in conn.execute(
+            """
+            SELECT t.tag FROM DeviceTag dt
+            JOIN Tag t ON t.id = dt.tag_id
+            WHERE dt.mac = ?
+            ORDER BY t.tag COLLATE NOCASE
+            """,
+            (mac_norm,),
+        ).fetchall()
+    ]
+    data["tag_list"] = tags
+    data["mac"] = mac_norm
+    return data
+
+
 def list_devices(
     conn: sqlite3.Connection,
     *,
     query: str | None = None,
     friendly: bool | None = None,
+    tracked: bool | None = None,
     tag: str | None = None,
     limit: int = 2000,
 ) -> list[dict[str, Any]]:
@@ -488,6 +1396,9 @@ def list_devices(
                 COALESCE(pkt.client_count, 0) AS client_count,
                 pkt.clients,
                 COALESCE(d.friendly, 0) AS friendly,
+                COALESCE(d.tracked, 0) AS tracked,
+                d.presence,
+                d.last_signal,
                 d.source,
                 d.state
             FROM pkt
@@ -507,6 +1418,9 @@ def list_devices(
                 0 AS client_count,
                 NULL AS clients,
                 d.friendly,
+                COALESCE(d.tracked, 0) AS tracked,
+                d.presence,
+                d.last_signal,
                 d.source,
                 d.state
             FROM Device d
@@ -525,6 +1439,10 @@ def list_devices(
         sql += " AND friendly = 1"
     elif friendly is False:
         sql += " AND (friendly = 0 OR friendly IS NULL)"
+    if tracked is True:
+        sql += " AND tracked = 1"
+    elif tracked is False:
+        sql += " AND (tracked = 0 OR tracked IS NULL)"
     if tag:
         sql += """
           AND EXISTS (
@@ -553,7 +1471,7 @@ def list_devices(
           )
         """
         params.extend([like] * 8)
-    sql += " ORDER BY friendly DESC, last_seen DESC, name COLLATE NOCASE LIMIT ?"
+    sql += " ORDER BY tracked DESC, friendly DESC, last_seen DESC, name COLLATE NOCASE LIMIT ?"
     params.append(max(1, min(limit, 5000)))
     rows = []
     for row in conn.execute(sql, params).fetchall():
@@ -601,6 +1519,70 @@ def suspicious_activity(
         LIMIT ?
         """,
         (f"-{hours} hours", max(1, min(limit, 2000))),
+    ).fetchall()
+    items = []
+    for row in rows:
+        item = dict(row)
+        item["tag_list"] = [t for t in str(item.get("tags") or "").split(", ") if t]
+        item["ssid_list"] = [s for s in str(item.get("ssids") or "").split(",") if s]
+        items.append(item)
+    return items
+
+
+def sensor_gps(conn: sqlite3.Connection) -> dict[str, Any] | None:
+    """Latest non-zero GPS reading from a connected sensor packet."""
+    row = conn.execute(
+        """
+        SELECT p.Latitude AS lat, p.Longitude AS lon, p.CaptureDate AS captured_at,
+               c.name AS client_name, p.client_id
+          FROM Packet p
+          JOIN Client c ON c.id = p.client_id
+         WHERE p.Latitude IS NOT NULL AND p.Longitude IS NOT NULL
+           AND ABS(p.Latitude) > 0.01 AND ABS(p.Longitude) > 0.01
+         ORDER BY p.CaptureDate DESC
+         LIMIT 1
+        """
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def devices_for_map(
+    conn: sqlite3.Connection,
+    *,
+    hours: int = 8,
+    limit: int = 400,
+) -> list[dict[str, Any]]:
+    hours = max(1, min(int(hours), 168))
+    rows = conn.execute(
+        """
+        SELECT
+            REPLACE(UPPER(p.SourceMAC), '-', ':') AS mac,
+            MAX(d.name) AS name,
+            MAX(COALESCE(d.vendor, p.SourceVendor)) AS vendor,
+            MAX(COALESCE(d.device_type, p.DeviceType)) AS device_type,
+            MAX(IFNULL(d.friendly, 0)) AS friendly,
+            MAX(NULLIF(p.FriendlyName, '')) AS packet_name,
+            MAX(p.Signal) AS strongest_signal,
+            MIN(p.Signal) AS weakest_signal,
+            MAX(p.Band) AS band,
+            MAX(p.CaptureDate) AS last_seen,
+            COUNT(*) AS packets,
+            GROUP_CONCAT(DISTINCT NULLIF(p.SSID, '')) AS ssids,
+            (SELECT GROUP_CONCAT(t.tag, ', ')
+               FROM DeviceTag dt
+               JOIN Tag t ON t.id = dt.tag_id
+              WHERE dt.mac = REPLACE(UPPER(p.SourceMAC), '-', ':')) AS tags
+        FROM Packet p
+        LEFT JOIN Device d
+          ON d.mac = REPLACE(UPPER(p.SourceMAC), '-', ':')
+        WHERE p.SourceMAC IS NOT NULL AND p.SourceMAC != ''
+          AND p.CaptureDate >= datetime('now', ?)
+          AND p.Signal IS NOT NULL
+        GROUP BY REPLACE(UPPER(p.SourceMAC), '-', ':')
+        ORDER BY last_seen DESC
+        LIMIT ?
+        """,
+        (f"-{hours} hours", max(1, min(limit, 1000))),
     ).fetchall()
     items = []
     for row in rows:
@@ -729,6 +1711,126 @@ def set_friendly(
              WHERE REPLACE(UPPER(SourceMAC), '-', ':') = ?
             """,
             (mac_norm,),
+        )
+    conn.commit()
+    device = get_device(conn, mac_norm)
+    assert device is not None
+    return device
+
+
+def presence_window_minutes(conn: sqlite3.Connection) -> int:
+    row = conn.execute(
+        "SELECT quiet_minutes FROM VoiceAlert WHERE id = 'left_premises'"
+    ).fetchone()
+    if row and row["quiet_minutes"] is not None:
+        return _clamp_alert_threshold(row["quiet_minutes"], default=15, lo=1, hi=1440)
+    return 15
+
+
+def list_tracked_devices(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT mac, name, presence, last_signal, tracked, friendly, device_type
+          FROM Device
+         WHERE tracked = 1
+        """
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def last_packet_snapshot(conn: sqlite3.Connection, mac: str) -> dict[str, Any]:
+    row = conn.execute(
+        """
+        SELECT CaptureDate AS capture_date, Signal AS signal,
+               NULLIF(FriendlyName, '') AS packet_name, DeviceType AS device_type,
+               SourceVendor AS vendor
+          FROM Packet
+         WHERE REPLACE(UPPER(SourceMAC), '-', ':') = ?
+         ORDER BY datetime(CaptureDate) DESC, id DESC
+         LIMIT 1
+        """,
+        (_normalize_mac(mac),),
+    ).fetchone()
+    return dict(row) if row else {}
+
+
+def update_device_presence(
+    conn: sqlite3.Connection,
+    mac: str,
+    *,
+    presence: str,
+    last_signal: Any = None,
+    commit: bool = False,
+) -> None:
+    conn.execute(
+        """
+        UPDATE Device
+           SET presence = ?, last_signal = COALESCE(?, last_signal), updated_at = ?
+         WHERE mac = ?
+        """,
+        (presence, last_signal, _now(), _normalize_mac(mac)),
+    )
+    if commit:
+        conn.commit()
+
+
+def set_tracked(conn: sqlite3.Connection, mac: str, tracked: bool) -> dict[str, Any]:
+    mac_norm = _normalize_mac(mac)
+    now = _now()
+    existing = get_device(conn, mac_norm) or {}
+    snap = last_packet_snapshot(conn, mac_norm)
+    if not existing:
+        conn.execute(
+            """
+            INSERT INTO Device (
+                mac, name, device_type, vendor, friendly, tracked, source,
+                imported_at, updated_at
+            ) VALUES (?, ?, ?, ?, 0, ?, 'Manual', ?, ?)
+            """,
+            (
+                mac_norm,
+                snap.get("packet_name"),
+                snap.get("device_type"),
+                snap.get("vendor"),
+                1 if tracked else 0,
+                now,
+                now,
+            ),
+        )
+    else:
+        conn.execute(
+            "UPDATE Device SET tracked = ?, updated_at = ? WHERE mac = ?",
+            (1 if tracked else 0, now, mac_norm),
+        )
+    if tracked:
+        minutes = presence_window_minutes(conn)
+        capture = snap.get("capture_date")
+        last_dt = None
+        if capture:
+            text = str(capture).strip().replace("T", " ")
+            if text.endswith("Z"):
+                text = text[:-1]
+            if "." in text:
+                text = text.split(".", 1)[0]
+            try:
+                last_dt = datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                last_dt = None
+        now_dt = datetime.now(timezone.utc).replace(tzinfo=None)
+        seen_recently = bool(last_dt and now_dt - last_dt < timedelta(minutes=minutes))
+        presence = "inside" if seen_recently else "away"
+        conn.execute(
+            """
+            UPDATE Device
+               SET presence = ?, last_signal = COALESCE(?, last_signal), updated_at = ?
+             WHERE mac = ?
+            """,
+            (presence, snap.get("signal"), now, mac_norm),
+        )
+    else:
+        conn.execute(
+            "UPDATE Device SET presence = NULL, updated_at = ? WHERE mac = ?",
+            (now, mac_norm),
         )
     conn.commit()
     device = get_device(conn, mac_norm)

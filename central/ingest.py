@@ -12,6 +12,7 @@ from central.db import (
     Store,
     apply_device_tags_to_packets,
     apply_friendly_to_packets,
+    cleanse_device_type,
     get_client,
     list_clients,
     log_activity,
@@ -179,7 +180,12 @@ def _ingest_one(
             if row is None:
                 break
             source_id = int(row["id"])
-            values = [client_id, source_id] + [row[col] for col in columns[1:]]
+            values = [client_id, source_id]
+            for col in columns[1:]:
+                value = row[col]
+                if col == "DeviceType":
+                    value = cleanse_device_type(value)
+                values.append(value)
             batch.append(tuple(values))
             max_id = max(max_id, source_id)
             capture = row["CaptureDate"] if "CaptureDate" in row.keys() else None

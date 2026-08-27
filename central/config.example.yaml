@@ -7,9 +7,26 @@ frigate:
   base_url: http://127.0.0.1:5000
   pad_seconds: 15
   lead_seconds: 5
+  # Camera enable/disable is managed under Settings in the web UI.
 
-# Each client is a Sentinel installation with its own packet.db.
-# When the client is on the network, set db_path to the reachable SQLite file.
+# Chatterbox TTS Server — voice alerts. Connection and alert toggles
+# are also managed under Settings in the web UI.
+# WiGLE API name/token are stored in Settings. Optional YAML seed:
+wigle:
+  enabled: false
+  base_url: https://api.wigle.net
+
+chatterbox_tts:
+  enabled: true
+  base_url: http://127.0.0.1:8004
+  voice_mode: clone
+  reference_audio_filename: JLC_William_McEvoy.mp3
+  output_format: wav
+  timeout: 60
+  cooldown_seconds: 120
+
+# YAML clients are first-run bootstrap only (empty Client table). After that,
+# add/edit/delete clients in the web UI — the database is the source of truth.
 clients:
   - name: patio-pi
     db_path: /mnt/sentinel/patio/packet.db

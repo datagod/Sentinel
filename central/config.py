@@ -56,6 +56,24 @@ def frigate_settings(settings: dict[str, Any] | None = None) -> dict[str, Any]:
     }
 
 
+def wigle_yaml(settings: dict[str, Any] | None = None) -> dict[str, Any]:
+    from central.wigle import wigle_defaults
+
+    s = settings or load_settings()
+    raw = s.get("wigle") if isinstance(s.get("wigle"), dict) else {}
+    return wigle_defaults(raw)
+
+
+def chatterbox_yaml(settings: dict[str, Any] | None = None) -> dict[str, Any]:
+    from central.chatterbox import chatterbox_defaults
+
+    s = settings or load_settings()
+    raw = s.get("chatterbox_tts") if isinstance(s.get("chatterbox_tts"), dict) else {}
+    if not raw and isinstance(s.get("chatterbox"), dict):
+        raw = s.get("chatterbox") or {}
+    return chatterbox_defaults(raw)
+
+
 def seed_clients(settings: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     s = settings or load_settings()
     raw = s.get("clients")

@@ -8,14 +8,23 @@ frigate:
   pad_seconds: 15
   lead_seconds: 5
 
-# Client Sentinel installations. Paths are as seen from this central server
-# (local disk, SSHFS, NFS, or a copied packet.db). Clients that are offline
-# are skipped until their database is reachable again.
+# WiGLE API credentials are entered under Settings (not stored in this file).
+wigle:
+  enabled: false
+  base_url: https://api.wigle.net
+
+chatterbox_tts:
+  enabled: true
+  base_url: http://127.0.0.1:8004
+  voice_mode: clone
+  reference_audio_filename: JLC_William_McEvoy.mp3
+  output_format: wav
+  timeout: 60
+  cooldown_seconds: 120
+
+# YAML clients are first-run bootstrap only. After that, add/edit/delete
+# clients in the web UI — the database is the source of truth.
 clients:
-  - name: local-dev
-    db_path: /home/bill/sentinel/packet.db
-    notes: Example local sensor — update or remove in the web UI
-    enabled: false
   - name: 192.168.0.164
     db_path: smb://192.168.0.164/sentinel/packet.db
     notes: Patio / Pi sensor over SMB

@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "_head.html" %}
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <title>Map · Sentinel Central</title>
+</head>
+<body>
+  <div class="set-app">
+    <div class="set-layout">
+    <div class="set-main">
+    {% include "_nav.html" %}
+
+    <section class="set-panel map-panel">
+      <div class="panel-head">
+        <h2>Device map</h2>
+        <span class="panel-count" id="map-count">
+          {% if map_data.center %}
+            {{ map_data.devices|length }} device{{ '' if map_data.devices|length == 1 else 's' }}
+          {% else %}
+            No sensor GPS
+          {% endif %}
+        </span>
+      </div>
+      <p class="hint">
+        Center is the latest GPS from the connected sensor.
+        Distance from center is estimated from Wi‑Fi signal strength.
+        Direction around the sensor is stable per MAC but is <strong>not</strong> a real compass bearing.
+        Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors.
+      </p>
+      <form class="filter-bar" method="get" action="/map">
+        <label class="set-field">
+          <span>Lookback</span>
+          <select class="set-select" name="hours" onchange="this.form.submit()">
+            {% for h in hour_choices %}
+            <option value="{{ h }}" {% if hours == h %}selected{% endif %}>
+              {% if h == 1 %}1 hour{% else %}{{ h }} hours{% endif %}
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+        {% if map_data.center %}
+        <span class="hint">
+          Sensor {{ map_data.center.client_name or "GPS" }}
+          · {{ map_data.center.lat }}, {{ map_data.center.lon }}
+          · {{ map_data.center.captured_at }}
+        </span>
+        {% endif %}
+      </form>
+      <div class="map-legend">
+        <span><i class="map-dot map-dot-sensor"></i> Sensor</span>
+        <span><i class="map-dot map-dot-friendly"></i> Friendly</span>
+        <span><i class="map-dot map-dot-mobile"></i> Mobile</span>
+        <span><i class="map-dot map-dot-other"></i> Other</span>
+        <span class="map-ring-key">Dashed ring = 300 ft camera range</span>
+      </div>
+      {% if map_data.center %}
+      <div id="device-map" class="map-canvas" role="img" aria-label="Map of detected devices"></div>
+      {% else %}
+      <p class="summary-empty">No GPS coordinates from the connected sensor yet. When the Pi writes Latitude/Longitude on packets, the map will center there.</p>
+      {% endif %}
+    </section>
+    </div>
+    <script id="map-data" type="application/json">{{ map_data | tojson }}</script>
+    {% include "_activity_log.html" %}
+</body>
+</html>

@@ -10,8 +10,11 @@
     <div class="set-main">
     {% include "_nav.html" %}
 
-    <section class="set-panel">
-      <h2>Server</h2>
+    <details class="set-panel settings-fold" data-section="server" open>
+      <summary class="settings-fold-head">
+        <h2>Server</h2>
+      </summary>
+      <div class="settings-fold-body">
       <p class="hint">These values come from <code>config.yaml</code>. Restart the server after editing the file.</p>
       <div class="set-grid" style="margin-top:0.75rem">
         <div class="set-field">
@@ -27,10 +30,248 @@
           <input class="set-input" value="{{ interval }}" readonly>
         </div>
       </div>
-    </section>
+      </div>
+    </details>
 
-    <section class="set-panel">
-      <h2>Storage</h2>
+    <details class="set-panel settings-fold" data-section="frigate" open>
+      <summary class="settings-fold-head">
+        <h2>Frigate</h2>
+      </summary>
+      <div class="settings-fold-body">
+      <p class="hint">Footage lookup uses this NVR. Values are pre-filled from the current config and apply immediately — no restart needed.</p>
+      <div class="set-grid" style="margin-top:0.75rem">
+        <div class="set-field set-field-wide">
+          <label for="frigate-url">Base URL</label>
+          <input class="set-input" id="frigate-url" value="{{ frigate.base_url }}" placeholder="http://127.0.0.1:5000" autocomplete="off">
+        </div>
+        <div class="set-field">
+          <label for="frigate-lead">Look earlier (seconds)</label>
+          <input class="set-input" id="frigate-lead" type="number" min="0" max="60" value="{{ frigate.lead_seconds }}">
+        </div>
+        <div class="set-field">
+          <label for="frigate-pad">Window padding (seconds)</label>
+          <input class="set-input" id="frigate-pad" type="number" min="5" max="120" value="{{ frigate.pad_seconds }}">
+        </div>
+      </div>
+      <div class="actions-row">
+        <button type="button" class="btn btn-primary" id="btn-save-frigate">Save Frigate settings</button>
+        <button type="button" class="btn btn-secondary" id="btn-refresh-cameras">Refresh cameras</button>
+      </div>
+      <p class="{% if frigate_error %}status-line error{% else %}hint{% endif %}" id="frigate-status" style="margin-top:0.75rem">
+        {% if frigate_error %}
+          {{ frigate_error }}
+        {% elif frigate_cameras %}
+          Connected · {{ frigate_enabled_count }} of {{ frigate_cameras|length }} camera{{ '' if frigate_cameras|length == 1 else 's' }} included in footage lookup
+        {% else %}
+          Save a reachable Frigate URL to load cameras.
+        {% endif %}
+      </p>
+
+      <details class="settings-fold settings-fold-nested" data-section="frigate-cameras" open>
+        <summary class="settings-fold-head">
+          <h2>Cameras</h2>
+          <span class="panel-count" id="frigate-enabled-count">{{ frigate_enabled_count }} enabled</span>
+        </summary>
+        <div class="settings-fold-body">
+      <p class="hint">Toggle cameras on to include them in the Frigate footage lookup. New cameras default to on.</p>
+      {% if frigate_cameras %}
+      <ul class="camera-toggle-list" id="frigate-camera-list">
+        {% for cam in frigate_cameras %}
+        <li class="camera-toggle-row{% if not cam.live %} is-offline{% endif %}">
+          <div class="camera-toggle-meta">
+            <span class="camera-name">{{ cam.name }}</span>
+            {% if not cam.live %}<span class="badge badge-muted">not reported</span>{% endif %}
+          </div>
+          <label class="switch">
+            <input type="checkbox" class="camera-enable" data-name="{{ cam.name }}" {% if cam.enabled %}checked{% endif %} aria-label="Include {{ cam.name }} in footage lookup">
+            <span class="switch-slider"></span>
+          </label>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="summary-empty">No cameras yet. Save a reachable Frigate URL or click Refresh cameras.</p>
+      {% endif %}
+        </div>
+      </details>
+      </div>
+    </details>
+
+    <details class="set-panel settings-fold" data-section="chatterbox" open>
+      <summary class="settings-fold-head">
+        <h2>Chatterbox</h2>
+      </summary>
+      <div class="settings-fold-body">
+      <p class="hint">Voice alerts use the Chatterbox TTS server (same engine as Frigate TUI). Values are pre-filled from the current config.</p>
+      <div class="set-grid" style="margin-top:0.75rem">
+        <div class="set-field set-field-wide">
+          <label for="chatterbox-url">Base URL</label>
+          <input class="set-input" id="chatterbox-url" value="{{ chatterbox.base_url }}" placeholder="http://127.0.0.1:8004" autocomplete="off">
+        </div>
+        <div class="set-field set-field-wide">
+          <label for="chatterbox-voice">Voice</label>
+          <select class="set-select" id="chatterbox-voice">
+            {% set current_voice = chatterbox.voice %}
+            {% if chatterbox_voices.clone %}
+            <optgroup label="Clone voices">
+              {% for v in chatterbox_voices.clone %}
+              <option value="clone:{{ v.id }}" {% if chatterbox.voice_mode == 'clone' and current_voice == v.id %}selected{% endif %}>{{ v.label }}</option>
+              {% endfor %}
+            </optgroup>
+            {% endif %}
+            {% if chatterbox_voices.predefined %}
+            <optgroup label="Predefined voices">
+              {% for v in chatterbox_voices.predefined %}
+              <option value="predefined:{{ v.id }}" {% if chatterbox.voice_mode == 'predefined' and current_voice == v.id %}selected{% endif %}>{{ v.label }}</option>
+              {% endfor %}
+            </optgroup>
+            {% endif %}
+            {% if not chatterbox_voices.clone and not chatterbox_voices.predefined %}
+            <option value="{{ chatterbox.voice_mode }}:{{ chatterbox.voice }}" selected>{{ chatterbox.voice or "No voices loaded" }}</option>
+            {% endif %}
+          </select>
+        </div>
+        <div class="set-field">
+          <label for="chatterbox-cooldown">Alert cooldown (seconds)</label>
+          <input class="set-input" id="chatterbox-cooldown" type="number" min="15" max="3600" value="{{ chatterbox.cooldown_seconds }}">
+        </div>
+        <div class="set-field">
+          <label for="chatterbox-timeout">TTS timeout (seconds)</label>
+          <input class="set-input" id="chatterbox-timeout" type="number" min="5" max="180" value="{{ chatterbox.timeout }}">
+        </div>
+      </div>
+      <label class="set-check">
+        <input type="checkbox" id="chatterbox-enabled" {% if chatterbox.enabled %}checked{% endif %}>
+        Enable Chatterbox voice alerts
+      </label>
+      <div class="actions-row">
+        <button type="button" class="btn btn-primary" id="btn-save-chatterbox">Save Chatterbox settings</button>
+        <button type="button" class="btn btn-secondary" id="btn-test-chatterbox">Test voice</button>
+      </div>
+      <p class="{% if chatterbox_error %}status-line error{% else %}hint{% endif %}" id="chatterbox-status" style="margin-top:0.75rem">
+        {% if chatterbox_error %}
+          {{ chatterbox_error }}
+        {% elif chatterbox.enabled %}
+          Connected · {{ chatterbox.voice_mode }} voice {{ chatterbox.voice }}
+        {% else %}
+          Voice alerts are off until Chatterbox is enabled.
+        {% endif %}
+      </p>
+
+      <details class="settings-fold settings-fold-nested" data-section="chatterbox-alerts" open>
+        <summary class="settings-fold-head">
+          <h2>Voice alerts</h2>
+          <span class="panel-count" id="alert-enabled-count">{{ chatterbox.alerts | selectattr('enabled') | list | length }} enabled</span>
+        </summary>
+        <div class="settings-fold-body">
+      <p class="hint">Toggle which events are spoken. Packet alerts fire after ingest. Leave/enter alerts for tracked devices also run when no new packets arrived. The cooldown applies to the same spoken phrase and to the same device.</p>
+      <ul class="camera-toggle-list" id="voice-alert-list">
+        {% for alert in chatterbox.alerts %}
+        <li class="camera-toggle-row" data-alert-id="{{ alert.id }}">
+          <div class="camera-toggle-meta">
+            <div>
+              <span class="alert-label">{{ alert.label }}</span>
+              <p class="hint" style="margin:0.15rem 0 0">{{ alert.hint }} Speaks “{{ alert.template }}”</p>
+              {% if alert.has_threshold %}
+              <div class="alert-threshold">
+                <input class="set-input alert-min-packets" type="number" min="1" max="1000"
+                  value="{{ alert.min_packets or 5 }}" data-id="{{ alert.id }}"
+                  aria-label="Minimum packets for {{ alert.label }}">
+                <span>packets in the past</span>
+                <input class="set-input alert-window-minutes" type="number" min="1" max="1440"
+                  value="{{ alert.window_minutes or 5 }}" data-id="{{ alert.id }}"
+                  aria-label="Minutes window for {{ alert.label }}">
+                <span>minutes</span>
+              </div>
+              {% endif %}
+              {% if alert.has_quiet_period %}
+              <div class="alert-threshold">
+                <span>{{ alert.quiet_label or "Only announce if not seen for" }}</span>
+                <input class="set-input alert-quiet-minutes" type="number" min="1" max="1440"
+                  value="{{ alert.quiet_minutes or 30 }}" data-id="{{ alert.id }}"
+                  aria-label="Minutes window for {{ alert.label }}">
+                <span>minutes</span>
+              </div>
+              {% endif %}
+              {% if alert.template_editable %}
+              <label class="alert-template-field">
+                <span>Spoken phrase</span>
+                <input class="set-input alert-template" type="text" maxlength="200"
+                  value="{{ alert.template }}" data-id="{{ alert.id }}"
+                  aria-label="Spoken phrase for {{ alert.label }}"
+                  placeholder="{name} has left the premises.">
+              </label>
+              {% endif %}
+            </div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" class="alert-enable" data-id="{{ alert.id }}" {% if alert.enabled %}checked{% endif %} aria-label="Enable {{ alert.label }}">
+            <span class="switch-slider"></span>
+          </label>
+        </li>
+        {% endfor %}
+      </ul>
+        </div>
+      </details>
+      </div>
+    </details>
+
+    <details class="set-panel settings-fold" data-section="wigle" open>
+      <summary class="settings-fold-head">
+        <h2>WiGLE</h2>
+      </summary>
+      <div class="settings-fold-body">
+      <p class="hint">
+        Personal, non-commercial lookups of access points and SSIDs.
+        Create API Name and API Token on
+        <a href="https://wigle.net/account" target="_blank" rel="noopener">your WiGLE account page</a>
+        (not the website password). Bound by the
+        <a href="https://wigle.net/eula.html" target="_blank" rel="noopener">WiGLE EULA</a>.
+        Daily query limits apply.
+      </p>
+      <div class="set-grid" style="margin-top:0.75rem">
+        <div class="set-field set-field-wide">
+          <label for="wigle-url">API base URL</label>
+          <input class="set-input" id="wigle-url" value="{{ wigle.base_url }}" placeholder="https://api.wigle.net" autocomplete="off">
+        </div>
+        <div class="set-field">
+          <label for="wigle-api-name">API name</label>
+          <input class="set-input" id="wigle-api-name" value="{{ wigle.api_name }}" placeholder="AID-…" autocomplete="off">
+        </div>
+        <div class="set-field">
+          <label for="wigle-api-token">API token</label>
+          <input class="set-input" id="wigle-api-token" type="password"
+            placeholder="{{ 'leave blank to keep current token' if wigle.has_api_token else 'paste token from wigle.net/account' }}"
+            autocomplete="new-password">
+        </div>
+      </div>
+      <label class="set-check">
+        <input type="checkbox" id="wigle-enabled" {% if wigle.enabled %}checked{% endif %}>
+        Enable WiGLE lookups
+      </label>
+      <div class="actions-row">
+        <button type="button" class="btn btn-primary" id="btn-save-wigle">Save WiGLE settings</button>
+        <button type="button" class="btn btn-secondary" id="btn-test-wigle">Test connection</button>
+        <button type="button" class="btn btn-secondary" id="btn-wigle-usage">Show usage</button>
+      </div>
+      <p class="hint" id="wigle-status" style="margin-top:0.75rem">
+        {% if wigle.enabled and wigle.has_api_token %}
+          Enabled · API name {{ wigle.api_name or "—" }} · token saved
+        {% elif wigle.has_api_token %}
+          Token saved · lookups are off until enabled
+        {% else %}
+          No token stored yet.
+        {% endif %}
+      </p>
+      <div id="wigle-usage" class="wigle-usage" hidden></div>
+      </div>
+    </details>
+
+    <details class="set-panel settings-fold" data-section="storage" open>
+      <summary class="settings-fold-head">
+        <h2>Storage</h2>
+      </summary>
+      <div class="settings-fold-body">
       <div class="set-grid">
         <div class="set-field">
           <label>Config file</label>
@@ -49,7 +290,20 @@
         Client <code>packet.db</code> files stay on each Sentinel node. This server copies new
         <code>Packet</code> rows into the central database when a client path is reachable.
       </p>
-    </section>
+      </div>
+    </details>
+    <script>
+    (function () {
+      try {
+        var stored = JSON.parse(localStorage.getItem("sentinel-central-settings-sections") || "{}");
+        if (!stored || typeof stored !== "object") return;
+        document.querySelectorAll("details.settings-fold[data-section]").forEach(function (el) {
+          var id = el.getAttribute("data-section");
+          if (id && Object.prototype.hasOwnProperty.call(stored, id)) el.open = !!stored[id];
+        });
+      } catch (e) {}
+    })();
+    </script>
     </div>
     {% include "_activity_log.html" %}
 </body>

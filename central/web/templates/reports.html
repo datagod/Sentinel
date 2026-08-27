@@ -24,13 +24,15 @@
             {% endfor %}
           </select>
         </label>
-        <span class="panel-count">{{ rows|length }} device{{ '' if rows|length == 1 else 's' }}</span>
+        <span class="panel-count" id="report-count">{{ rows|length }} device{{ '' if rows|length == 1 else 's' }}</span>
       </form>
       <div class="table-wrap" style="margin-top:0.75rem">
-        {% if rows %}
-        <table class="data-table">
+        <table class="data-table" id="report-table"
+          data-hours="{{ hours }}"
+          data-newest-id="{{ latest_packet_id or 0 }}">
           <thead>
             <tr>
+              <th></th>
               <th>Last seen</th>
               <th>MAC</th>
               <th>Name</th>
@@ -44,15 +46,30 @@
               <th></th>
             </tr>
           </thead>
-          <tbody>
+          <tbody id="report-tbody">
             {% for d in rows %}
-            <tr>
+            <tr class="{% if 'mobile' in (d.device_type or '')|lower %}row-mobile{% endif %}">
+              <td>
+                {% if d.last_seen %}
+                <button type="button" class="btn-film" title="Frigate footage"
+                  data-ts="{{ d.last_seen | unix }}" data-mac="{{ d.mac }}"
+                  aria-label="Open Frigate footage">
+                  <img src="/static/img/film-reel.svg" width="18" height="18" alt="">
+                </button>
+                {% endif %}
+              </td>
               <td>{{ d.last_seen | localtime }}</td>
               <td><a href="/packets?q={{ d.mac }}">{{ d.mac }}</a></td>
               <td>{{ d.name or "—" }}</td>
               <td>{{ d.vendor or "—" }}</td>
               <td>{{ d.device_type or "—" }}</td>
-              <td>{{ d.ssids or "—" }}</td>
+              <td>
+                {% if d.ssid_list %}
+                  {% for s in d.ssid_list %}
+                    {% with ssid=s %}{% include "_ssid_link.html" %}{% endwith %}{% if not loop.last %} {% endif %}
+                  {% endfor %}
+                {% else %}—{% endif %}
+              </td>
               <td>{{ d.packets }}</td>
               <td>
                 {% if d.strongest_signal is not none %}
@@ -75,12 +92,11 @@
                   data-mac="{{ d.mac }}" data-friendly="0">Mark friendly</button>
               </td>
             </tr>
+            {% else %}
+            <tr id="report-empty-row"><td colspan="12" class="summary-empty">No non-friendly devices with traffic in the last {{ hours }} hour{{ '' if hours == 1 else 's' }}.</td></tr>
             {% endfor %}
           </tbody>
         </table>
-        {% else %}
-        <p class="summary-empty">No non-friendly devices with traffic in the last {{ hours }} hour{{ '' if hours == 1 else 's' }}.</p>
-        {% endif %}
       </div>
     </section>
     </div>

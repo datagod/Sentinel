@@ -12,13 +12,18 @@
 
     <section class="set-panel">
       <h2>Devices</h2>
-      <p class="hint">Tags apply to this MAC and to every packet with that source address, including future pulls.</p>
+      <p class="hint">Tags apply to this MAC and to every packet with that source address, including future pulls. Track a device to watch its signal and hear leave/enter alerts when packets stop for the window set under Settings.</p>
       <form class="filter-bar" method="get" action="/devices">
         <input class="set-input" type="search" name="q" value="{{ q }}" placeholder="MAC, name, vendor, IP, tag…">
         <select class="set-select" name="friendly">
           <option value="" {% if not friendly %}selected{% endif %}>All devices</option>
           <option value="1" {% if friendly == '1' %}selected{% endif %}>Friendly only</option>
           <option value="0" {% if friendly == '0' %}selected{% endif %}>Unknown only</option>
+        </select>
+        <select class="set-select" name="tracked">
+          <option value="" {% if not tracked %}selected{% endif %}>All tracking</option>
+          <option value="1" {% if tracked == '1' %}selected{% endif %}>Tracked only</option>
+          <option value="0" {% if tracked == '0' %}selected{% endif %}>Not tracked</option>
         </select>
         <select class="set-select" name="tag">
           <option value="">All tags</option>
@@ -39,8 +44,10 @@
           <thead>
             <tr>
               <th></th>
+              <th>Track</th>
               <th>Name</th>
               <th>MAC</th>
+              <th>Signal</th>
               <th>IP</th>
               <th>Vendor</th>
               <th>Type</th>
@@ -61,11 +68,28 @@
                 {% endif %}
               </td>
               <td>
+                <div class="track-cell">
+                  <label class="switch">
+                    <input type="checkbox" class="device-track" data-mac="{{ d.mac }}"
+                      {% if d.tracked %}checked{% endif %}
+                      aria-label="Track {{ d.name or d.mac }}">
+                    <span class="switch-slider"></span>
+                  </label>
+                  <span class="track-caption">Track</span>
+                  {% if d.tracked and d.presence == 'inside' %}
+                  <span class="badge badge-ok">on site</span>
+                  {% elif d.tracked and d.presence == 'away' %}
+                  <span class="badge badge-muted">away</span>
+                  {% endif %}
+                </div>
+              </td>
+              <td>
                 <form class="friendly-name-form" data-mac="{{ d.mac }}" data-friendly="{{ 1 if d.friendly else 0 }}">
                   <input class="set-input name-input" value="{{ d.name or '' }}" placeholder="device name" aria-label="Friendly name">
                 </form>
               </td>
               <td><a href="/packets?q={{ d.mac }}">{{ d.mac }}</a></td>
+              <td class="mono-cell">{% if d.last_signal is not none %}{{ d.last_signal }}{% else %}—{% endif %}</td>
               <td>{{ d.ip_addresses or "—" }}</td>
               <td>{{ d.vendor or "—" }}</td>
               <td>{{ d.device_type or "—" }}</td>

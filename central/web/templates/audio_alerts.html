@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "_head.html" %}
+  <title>Audio Alerts · Sentinel Central</title>
+</head>
+<body>
+  <div class="set-app">
+    <div class="set-layout">
+    <div class="set-main">
+    {% include "_nav.html" %}
+
+    <section class="set-panel">
+      <h2>Speak</h2>
+      <p class="hint">
+        Generate a Chatterbox recording and save it under
+        <code>{{ cache_dir }}</code>. The same phrase + voice is reused on later alerts and tests
+        without calling Chatterbox again.
+      </p>
+      <div class="filter-bar" style="margin-top:0.75rem">
+        <input class="set-input" id="speak-text" type="text"
+          value="{{ test_message }}"
+          placeholder="Text to speak"
+          style="flex:1; min-width:16rem">
+        <button type="button" class="btn btn-primary" id="btn-speak-alert">Speak</button>
+      </div>
+      <p class="hint" id="speak-status" style="margin-top:0.6rem">
+        {% if chatterbox.enabled %}
+          Voice {{ chatterbox.voice or "—" }} · {{ chatterbox.voice_mode }}
+        {% else %}
+          Chatterbox is disabled — enable it under Settings.
+        {% endif %}
+      </p>
+    </section>
+
+    <section class="set-panel">
+      <div class="panel-head">
+        <h2>Cached TTS audio</h2>
+        <span class="panel-count" id="recordings-status">Open this tab or click Refresh to load recordings.</span>
+      </div>
+      <p class="hint">Event alerts and Speak tests are cached here — play, download, or remove. Select recordings to delete.</p>
+      <div class="actions-row">
+        <button type="button" class="btn btn-secondary btn-small" id="btn-refresh-recordings">Refresh</button>
+        <button type="button" class="btn btn-secondary btn-small" id="recordings-delete-btn" disabled>Delete selected</button>
+      </div>
+      <div class="table-wrap" style="margin-top:0.75rem">
+        <table class="data-table" id="recordings-table">
+          <thead>
+            <tr>
+              <th class="col-check">
+                <input type="checkbox" id="recordings-select-all" title="Select all">
+              </th>
+              <th>Time</th>
+              <th>Message</th>
+              <th>Voice</th>
+              <th>Size</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="recordings-tbody">
+            <tr><td colspan="6" class="summary-empty">Open this tab or click Refresh to load recordings.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <audio id="recordings-player" class="hidden" preload="none"></audio>
+    </section>
+    </div>
+    {% include "_activity_log.html" %}
+</body>
+</html>

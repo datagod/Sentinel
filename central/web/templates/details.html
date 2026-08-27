@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {% include "_head.html" %}
+  <title>{{ mac }} · Sentinel Central</title>
+</head>
+<body>
+  <div class="set-app">
+    <div class="set-layout">
+    <div class="set-main">
+    {% include "_nav.html" %}
+
+    <section class="set-panel">
+      <div class="panel-head">
+        <h2>{{ mac }}</h2>
+        <div class="actions-row" style="margin-top:0">
+          {% if packet and packet.CaptureDate %}
+          <button type="button" class="btn-film" title="Frigate footage"
+            data-ts="{{ packet.CaptureDate | unix }}" data-mac="{{ mac }}"
+            aria-label="Open Frigate footage">
+            <img src="/static/img/film-reel.svg" width="18" height="18" alt="">
+          </button>
+          {% endif %}
+          <a class="btn btn-secondary btn-small" href="/packets?q={{ mac }}">All packets</a>
+          <a class="btn btn-secondary btn-small" href="/devices?q={{ mac }}">Devices</a>
+        </div>
+      </div>
+      <p class="hint">
+        {% if device.friendly %}
+        <span class="badge badge-ok"><span class="dot"></span>friendly</span>
+        {% else %}
+        <span class="badge badge-muted">not friendly</span>
+        {% endif %}
+        {{ summary.packets or 0 }} packet{{ '' if summary.packets == 1 else 's' }}
+        · first {{ summary.first_seen | localtime }}
+        · last {{ summary.last_seen | localtime }}
+      </p>
+    </section>
+
+    <div class="main" style="margin-top:1rem">
+      <section class="set-panel">
+        <div class="panel-head"><h2>This packet</h2></div>
+        {% if packet %}
+        <dl class="detail-grid">
+          <dt>Captured</dt><dd>{{ packet.CaptureDate | localtime }}</dd>
+          <dt>Client</dt><dd>{{ packet.client_name or "—" }}</dd>
+          <dt>Packet type</dt><dd>{{ packet.PacketType or "—" }}</dd>
+          <dt>Device type</dt><dd>{{ packet.DeviceType or "—" }}</dd>
+          <dt>Source MAC</dt><dd>{{ packet.SourceMAC or "—" }}</dd>
+          <dt>Source vendor</dt><dd>{{ packet.SourceVendor or "—" }}</dd>
+          <dt>Dest MAC</dt><dd>{{ packet.DestMAC or "—" }}</dd>
+          <dt>Dest vendor</dt><dd>{{ packet.DestVendor or "—" }}</dd>
+          <dt>SSID</dt><dd>{% with ssid=packet.SSID %}{% include "_ssid_link.html" %}{% endwith %}</dd>
+          <dt>Band</dt><dd>{{ packet.Band or "—" }}</dd>
+          <dt>Channel</dt><dd>{{ packet.Channel or "—" }}</dd>
+          <dt>Signal</dt><dd>{{ packet.Signal if packet.Signal is not none else "—" }}</dd>
+          <dt>Latitude</dt><dd>{{ packet.Latitude if packet.Latitude is not none else "—" }}</dd>
+          <dt>Longitude</dt><dd>{{ packet.Longitude if packet.Longitude is not none else "—" }}</dd>
+          <dt>Friendly name</dt><dd>{{ packet.FriendlyName or "—" }}</dd>
+          <dt>Friendly type</dt><dd>{{ packet.FriendlyType or "—" }}</dd>
+          <dt>Ingested</dt><dd>{{ packet.ingested_at | localtime }}</dd>
+        </dl>
+        {% else %}
+        <p class="summary-empty">No packet selected. Showing device summary only.</p>
+        {% endif %}
+      </section>
+
+      <section class="set-panel">
+        <div class="panel-head"><h2>Device</h2></div>
+        <dl class="detail-grid">
+          <dt>Name</dt>
+          <dd>
+            <form class="friendly-name-form" data-mac="{{ mac }}" data-friendly="{{ 1 if device.friendly else 0 }}">
+              <input class="set-input name-input" value="{{ device.name or '' }}" placeholder="device name">
+            </form>
+          </dd>
+          <dt>Friendly</dt>
+          <dd>
+            <button type="button" class="btn btn-secondary btn-small btn-set-friendly"
+              data-mac="{{ mac }}" data-friendly="{{ 1 if device.friendly else 0 }}">
+              {{ "Mark not friendly" if device.friendly else "Mark friendly" }}
+            </button>
+          </dd>
+          <dt>Type</dt><dd>{{ device.device_type or summary.device_types or "—" }}</dd>
+          <dt>Vendor</dt><dd>{{ device.vendor or summary.vendor or "—" }}</dd>
+          <dt>Model</dt><dd>{{ device.model or "—" }}</dd>
+          <dt>OS</dt><dd>{{ device.os or "—" }}</dd>
+          <dt>Hostname</dt><dd>{{ device.hostname or "—" }}</dd>
+          <dt>IP addresses</dt><dd>{{ device.ip_addresses or "—" }}</dd>
+          <dt>Source</dt><dd>{{ device.source or "—" }}</dd>
+          <dt>Notes</dt><dd>{{ device.notes or "—" }}</dd>
+          <dt>Signal</dt>
+          <dd>
+            {% if summary.strongest_signal is not none %}
+              {{ summary.strongest_signal }}{% if summary.weakest_signal is not none and summary.weakest_signal != summary.strongest_signal %} to {{ summary.weakest_signal }}{% endif %}
+            {% else %}—{% endif %}
+          </dd>
+          <dt>SSIDs</dt>
+          <dd>
+            {% if summary.ssids %}
+              {% for s in summary.ssids.split(',') %}
+                {% with ssid=s.strip() %}{% include "_ssid_link.html" %}{% endwith %}{% if not loop.last %} {% endif %}
+              {% endfor %}
+            {% else %}—{% endif %}
+          </dd>
+          <dt>Packet types</dt><dd>{{ summary.packet_types or "—" }}</dd>
+          <dt>Bands / channels</dt>
+          <dd>{{ summary.bands or "—" }} / {{ summary.channels or "—" }}</dd>
+          <dt>Clients</dt><dd>{{ summary.clients or "—" }}</dd>
+          <dt>Tags</dt>
+          <dd>
+            <div class="tag-cell">
+              {% for t in summary.tag_list %}
+              <span class="tag-chip">
+                <a href="/packets?tag={{ t }}">{{ t }}</a>
+                <button type="button" class="tag-remove" data-mac="{{ mac }}" data-tag="{{ t }}" title="Remove tag">×</button>
+              </span>
+              {% endfor %}
+              <form class="tag-add" data-mac="{{ mac }}">
+                <input class="set-input tag-input" list="tag-suggestions" placeholder="add tag">
+                <button type="submit" class="btn btn-secondary btn-small">Add</button>
+              </form>
+            </div>
+            <datalist id="tag-suggestions">
+              {% for t in known_tags %}
+              <option value="{{ t }}"></option>
+              {% endfor %}
+            </datalist>
+          </dd>
+        </dl>
+      </section>
+    </div>
+
+    <section class="set-panel" style="margin-top:1rem">
+      <div class="panel-head">
+        <h2>Recent packets from this MAC</h2>
+        <a class="btn btn-secondary btn-small" href="/packets?q={{ mac }}">View all</a>
+      </div>
+      {% if history %}
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th>Captured</th>
+              <th>Client</th>
+              <th>SSID</th>
+              <th>Type</th>
+              <th>Signal</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in history %}
+            <tr class="{% if packet and p.id == packet.id %}row-current{% endif %}">
+              <td>
+                {% if p.CaptureDate %}
+                <button type="button" class="btn-film" title="Frigate footage"
+                  data-ts="{{ p.CaptureDate | unix }}" data-mac="{{ mac }}">
+                  <img src="/static/img/film-reel.svg" width="18" height="18" alt="">
+                </button>
+                {% endif %}
+              </td>
+              <td><a href="/details?mac={{ mac }}&packet={{ p.id }}">{{ p.CaptureDate | localtime }}</a></td>
+              <td>{{ p.client_name }}</td>
+              <td>{% with ssid=p.SSID %}{% include "_ssid_link.html" %}{% endwith %}</td>
+              <td>{{ p.DeviceType or p.PacketType or "—" }}</td>
+              <td>{{ p.Signal if p.Signal is not none else "—" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="summary-empty">No packets recorded for this MAC.</p>
+      {% endif %}
+    </section>
+    </div>
+    {% include "_activity_log.html" %}
+</body>
+</html>

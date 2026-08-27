@@ -94,8 +94,8 @@
               <tr>
                 <td>{{ (p.CaptureDate or p.ingested_at) | localtime }}</td>
                 <td>{{ p.client_name }}</td>
-                <td><a href="/packets?q={{ p.SourceMAC }}">{{ p.SourceMAC }}</a></td>
-                <td>{{ p.SSID or "—" }}</td>
+                <td><a href="/details?mac={{ p.SourceMAC }}&packet={{ p.id }}">{{ p.SourceMAC }}</a></td>
+                <td>{% with ssid=p.SSID %}{% include "_ssid_link.html" %}{% endwith %}</td>
                 <td>{{ p.DeviceType or p.PacketType or "—" }}</td>
               </tr>
               {% endfor %}

@@ -35,19 +35,19 @@
         {% endfor %}
       </datalist>
       <div class="table-wrap" style="margin-top:0.75rem">
-        {% if packets %}
         <table class="data-table" id="packet-table"
           data-offset="{{ packets|length }}"
           data-page-size="{{ page_size }}"
           data-has-more="{{ 1 if has_more else 0 }}"
           data-q="{{ q }}"
           data-client-id="{{ client_id or '' }}"
-          data-tag="{{ tag }}">
+          data-tag="{{ tag }}"
+          data-newest-id="{{ packets[0].id if packets else 0 }}">
           <thead>
             <tr>
               <th></th>
               <th>Captured</th>
-              <th>Client</th>
+              <th>Device</th>
               <th>Source MAC</th>
               <th>Friendly</th>
               <th>SSID</th>
@@ -69,8 +69,8 @@
                 {% endif %}
               </td>
               <td>{{ p.CaptureDate | localtime }}</td>
-              <td>{{ p.client_name }}</td>
-              <td><a href="/packets?q={{ p.SourceMAC }}">{{ p.SourceMAC }}</a></td>
+              <td><a href="/details?mac={{ p.SourceMAC }}&packet={{ p.id }}">{{ p.device_name or p.FriendlyName or p.DeviceType or "—" }}</a></td>
+              <td><a href="/details?mac={{ p.SourceMAC }}&packet={{ p.id }}">{{ p.SourceMAC }}</a></td>
               <td>
                 <div class="friendly-cell">
                   {% if p.device_friendly == 1 %}
@@ -84,7 +84,7 @@
                   {% endif %}
                 </div>
               </td>
-              <td>{{ p.SSID or "—" }}</td>
+              <td>{% with ssid=p.SSID %}{% include "_ssid_link.html" %}{% endwith %}</td>
               <td>{{ p.DeviceType or p.PacketType or "—" }}</td>
               <td>{{ p.Signal if p.Signal is not none else "—" }}</td>
               <td>
@@ -102,14 +102,13 @@
                 </div>
               </td>
             </tr>
+            {% else %}
+            <tr id="packet-empty-row"><td colspan="9" class="summary-empty">No packets match this filter.</td></tr>
             {% endfor %}
           </tbody>
         </table>
         <p class="hint" id="packet-scroll-status" {% if not has_more %}hidden{% endif %}>Scroll for more packets…</p>
         <div id="packet-scroll-sentinel" aria-hidden="true"></div>
-        {% else %}
-        <p class="summary-empty">No packets match this filter.</p>
-        {% endif %}
       </div>
     </section>
     </div>
