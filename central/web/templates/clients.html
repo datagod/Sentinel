@@ -12,7 +12,7 @@
 
     <section class="set-panel">
       <h2 id="client-form-title">Add client</h2>
-      <p class="hint" id="client-form-hint">A client is a Sentinel installation. Use a local path or an SMB URL such as <code>smb://192.168.0.164/sentinel/packet.db</code>.</p>
+      <p class="hint" id="client-form-hint">A client is a Sentinel installation. Use a local path or an SMB URL such as <code>smb://192.168.0.164/sentinel/packet.db</code>. Packet-cache settings are written to <code>central-cache.json</code> next to that database so the sensor can apply them.</p>
       <input type="hidden" id="client-id" value="">
       <div class="set-grid" style="margin-top:0.75rem">
         <div class="set-field">
@@ -35,7 +35,16 @@
           <label for="client-smb-password">SMB password</label>
           <input class="set-input" id="client-smb-password" type="password" placeholder="leave blank to keep / guest" autocomplete="new-password">
         </div>
+        <div class="set-field">
+          <label for="client-cache-ttl-minutes">Duplicate window (minutes)</label>
+          <input class="set-input" id="client-cache-ttl-minutes" type="number" min="1" max="1440" value="15">
+        </div>
+        <div class="set-field">
+          <label for="client-cache-maxsize">Duplicate cache size</label>
+          <input class="set-input" id="client-cache-maxsize" type="number" min="100" max="1000000" value="10000">
+        </div>
       </div>
+      <p class="hint" style="margin-top:0.5rem">Same source MAC + SSID + vendor + device type is stored at most once per window. Central writes <code>central-cache.json</code> next to <code>packet.db</code> when the share is writable. If Samba is read-only, put <code>central-url.txt</code> beside <code>packet.db</code> with the Central URL (for example <code>http://192.168.0.10:8093</code>) and restart Sentinel on the Pi.</p>
       <label class="set-check">
         <input type="checkbox" id="client-enabled" checked>
         Enabled (include in scheduled pulls)
@@ -58,6 +67,7 @@
               <th>Path</th>
               <th>Status</th>
               <th>Packets</th>
+              <th>Packet cache</th>
               <th>Last success</th>
               <th></th>
             </tr>
@@ -74,6 +84,7 @@
                 {% if not c.enabled %}<span class="badge badge-muted">disabled</span>{% endif %}
               </td>
               <td>{{ c.packet_count }}</td>
+              <td>{{ ((c.packet_cache_ttl_seconds or 900) / 60)|int }} min / {{ c.packet_cache_maxsize or 10000 }}</td>
               <td>{{ c.last_success_at or "—" }}</td>
               <td>
                 <div class="actions-row" style="margin-top:0">
@@ -84,7 +95,9 @@
                     data-notes="{{ c.notes or '' }}"
                     data-smb-username="{{ c.smb_username or '' }}"
                     data-has-password="{{ 1 if c.has_smb_password else 0 }}"
-                    data-enabled="{{ 1 if c.enabled else 0 }}">Edit</button>
+                    data-enabled="{{ 1 if c.enabled else 0 }}"
+                    data-cache-ttl="{{ c.packet_cache_ttl_seconds or 900 }}"
+                    data-cache-maxsize="{{ c.packet_cache_maxsize or 10000 }}">Edit</button>
                   <button type="button" class="btn btn-secondary btn-small btn-sync" data-id="{{ c.id }}">Pull</button>
                   <button type="button" class="btn btn-secondary btn-small btn-toggle" data-id="{{ c.id }}" data-enabled="{{ 1 if c.enabled else 0 }}">
                     {{ "Disable" if c.enabled else "Enable" }}

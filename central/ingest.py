@@ -17,6 +17,7 @@ from central.db import (
     list_clients,
     log_activity,
 )
+from central.sensor_cache import push_client_cache_settings
 from central.smb_fetch import SmbError, fetch_smb_database, is_smb_path
 
 BATCH_SIZE = 500
@@ -101,7 +102,20 @@ def ingest_client(store: Store, client_id: int) -> dict[str, Any]:
             )
         return _ingest_one(conn, client, started, resolved)
 
-    return store.run(_run)
+    result = store.run(_run)
+    if result.get("status") == "ok":
+        ok, message = push_client_cache_settings(client)
+        result["cache_settings"] = "ok" if ok else message
+        if not ok:
+            store.run(
+                lambda c: log_activity(
+                    c,
+                    f"Could not push packet-cache settings to {client.get('name')}: {message}",
+                    level="warning",
+                    source="ingest",
+                )
+            )
+    return result
 
 
 def ingest_all(store: Store, *, enabled_only: bool = True) -> list[dict[str, Any]]:

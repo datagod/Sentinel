@@ -133,3 +133,39 @@ def fetch_smb_database(
             pass
 
     return dest
+
+
+def write_smb_bytes(
+    url: str,
+    data: bytes,
+    *,
+    username: str | None = None,
+    password: str | None = None,
+) -> None:
+    """Write bytes to an SMB file (overwrites). `url` is smb://host/share/relpath."""
+    loc = parse_smb_location(url)
+    host = str(loc["host"])
+    share = str(loc["share"])
+    relpath = str(loc["relpath"])
+    user = username or loc["username"]
+    pw = password if password is not None else loc["password"]
+    unc = _unc(host, share, relpath)
+    try:
+        smbclient.reset_connection_cache()
+        _connect(host, user, pw, int(loc["port"] or 445))
+        with smbclient.open_file(unc, mode="wb", buffering=0) as out:
+            out.write(data)
+    except SmbError:
+        raise
+    except Exception as exc:
+        text = str(exc)
+        if "ACCESS_DENIED" in text or "0xc0000022" in text:
+            raise SmbError(f"SMB access denied writing {url}") from exc
+        if "LOGON_FAILURE" in text or "0xc000006d" in text:
+            raise SmbError(f"SMB login failed writing {url}") from exc
+        raise SmbError(f"could not write {url}: {exc}") from exc
+    finally:
+        try:
+            smbclient.reset_connection_cache()
+        except Exception:
+            pass

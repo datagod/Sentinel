@@ -11,6 +11,64 @@
     {% include "_nav.html" %}
 
     <section class="set-panel">
+      <div class="panel-head">
+        <h2>Tracked Devices</h2>
+        <span class="panel-count" id="tracked-count">
+          {{ tracked_rows|length }} tracked
+          · {{ tracked_rows | selectattr('on_site') | list | length }} on site
+        </span>
+      </div>
+      <p class="hint">Devices with Track turned on. On site means packets were heard inside the Left Premises window. Arrival is the last time they entered; departure is the last time packets stopped.</p>
+      <div class="table-wrap" style="margin-top:0.75rem">
+        <table class="data-table" id="tracked-table" data-newest-id="{{ latest_presence_id or 0 }}">
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Name</th>
+              <th>MAC</th>
+              <th>Arrived</th>
+              <th>Departed</th>
+              <th>Duration</th>
+              <th>Last seen</th>
+              <th>Signal</th>
+              <th>Visits</th>
+              <th>Type</th>
+            </tr>
+          </thead>
+          <tbody id="tracked-tbody">
+            {% for d in tracked_rows %}
+            <tr class="{% if d.on_site %}row-on-site{% else %}row-away{% endif %}">
+              <td>
+                {% if d.on_site %}
+                <span class="badge badge-ok"><span class="dot"></span>on site</span>
+                {% else %}
+                <span class="badge badge-muted"><span class="dot"></span>away</span>
+                {% endif %}
+              </td>
+              <td>
+                <a href="/devices?q={{ d.mac }}">{{ d.name or "—" }}</a>
+                {% if d.friendly %}<span class="badge badge-ok">friendly</span>{% endif %}
+              </td>
+              <td><a href="/packets?q={{ d.mac }}">{{ d.mac }}</a></td>
+              <td>{{ d.arrived_at | localtime }}</td>
+              <td>{% if d.on_site %}—{% else %}{{ d.departed_at | localtime }}{% endif %}</td>
+              <td>{{ d.duration_label }} {{ d.duration_kind }}</td>
+              <td>{{ d.last_seen | localtime }}</td>
+              <td class="mono-cell">{% if d.last_signal is not none %}{{ d.last_signal }}{% else %}—{% endif %}</td>
+              <td>{{ d.visits or 0 }}</td>
+              <td>{{ d.device_type or "—" }}</td>
+            </tr>
+            {% else %}
+            <tr id="tracked-empty-row">
+              <td colspan="10" class="summary-empty">No devices are being tracked. Turn on Track on the Devices page.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="set-panel">
       <h2>Recent Suspicious Activity</h2>
       <p class="hint">Non-friendly devices with packet traffic in the selected window, newest first.</p>
       <form class="filter-bar" method="get" action="/reports">

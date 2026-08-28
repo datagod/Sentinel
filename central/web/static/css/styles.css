@@ -547,6 +547,25 @@ body {
 }
 .filter-bar .set-input { flex: 1 1 16rem; min-width: 12rem; }
 .filter-bar .set-select { min-width: 10rem; }
+.filter-bar .set-input-narrow {
+  flex: 0 1 7.5rem;
+  min-width: 6.5rem;
+  width: 7.5rem;
+}
+.data-table th .sort-link {
+  color: inherit;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  white-space: nowrap;
+}
+.data-table th .sort-link:hover { color: var(--text); }
+.data-table th[aria-sort] .sort-link { color: var(--text); }
+.sort-ind {
+  font-size: 0.68rem;
+  opacity: 0.75;
+}
 
 .table-wrap { overflow: auto; }
 .data-table {
@@ -571,6 +590,16 @@ body {
   font-family: var(--mono);
   font-size: 0.75rem;
   vertical-align: middle;
+}
+#devices-table tbody tr.device-row {
+  cursor: pointer;
+}
+#devices-table tbody tr.device-row:hover {
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+#devices-table tbody tr.device-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 .data-table .col-check {
   width: 2rem;
@@ -790,6 +819,16 @@ body {
   padding: 0.3rem 0.5rem;
   font-size: 0.78rem;
 }
+.spoken-name-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+.spoken-name-form .spoken-input {
+  flex: 1 1 16rem;
+  min-width: 12rem;
+}
 .track-cell {
   display: flex;
   flex-direction: column;
@@ -807,6 +846,13 @@ body {
   font-family: var(--mono);
   font-size: 0.82rem;
   white-space: nowrap;
+}
+tr.row-on-site td:first-child .badge-ok .dot {
+  background: var(--success);
+  box-shadow: 0 0 0.45rem var(--success);
+}
+tr.row-away {
+  opacity: 0.88;
 }
 .alert-template-field {
   display: flex;
@@ -832,9 +878,39 @@ body {
   background: var(--surface2);
   color: var(--accent);
   cursor: pointer;
+  flex-shrink: 0;
 }
 .btn-film:hover { border-color: var(--accent); background: var(--bg); }
 .btn-film img { display: block; filter: invert(62%) sepia(73%) saturate(1400%) hue-rotate(185deg) brightness(101%) contrast(101%); }
+.btn-film.btn-frigate-alert { border-color: var(--warn); }
+.btn-film.btn-frigate-alert:hover { border-color: var(--warn); background: var(--bg); }
+.btn-film.btn-frigate-alert img {
+  filter: invert(77%) sepia(42%) saturate(700%) hue-rotate(6deg) brightness(98%) contrast(96%);
+}
+.data-table tbody tr.row-frigate-hit {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.data-table tbody tr.row-frigate-hit:hover {
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface2));
+}
+.frigate-hit {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 14rem;
+}
+.frigate-hit-label {
+  font-family: var(--font);
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.frigate-hit-label.frigate-sev-alert { color: var(--warn); }
 
 .camera-grid {
   display: grid;

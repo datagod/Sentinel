@@ -21,6 +21,9 @@ class ChatterboxError(Exception):
     pass
 
 
+VOLUME_CUE_PHRASES = ("Adjusting volume.",)
+
+
 def chatterbox_defaults(raw: dict[str, Any] | None = None) -> dict[str, Any]:
     cfg = dict(raw or {})
     return {

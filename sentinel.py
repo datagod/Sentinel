@@ -29,6 +29,7 @@ Date            | Author         | Description
 2024-11-21      | datagod        | Initial version of the program.
 2026-08-24      | datagod        | E edit mode: freeze details, classify, save friendlies.
 2026-08-24      | datagod        | IE fingerprint + probe-SSID matching for randomized MACs.
+2026-08-27      | datagod        | Packet TTL cache size/window from Central (central-cache.json).
 
 
 '''
@@ -40,6 +41,9 @@ import textwindows
 import time
 import os
 import sqlite3
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import datetime  # Import only what's needed for clarity
 import csv
 import subprocess
@@ -119,8 +123,15 @@ ESC_KEYS                = ("\x1b", "\x1b\x1b")
 
 #Packet Stuff
 current_channel_info    = {"channel": None, "band": None, "frequency": None}
-displayed_packets_cache = TTLCache(maxsize=10000, ttl=900)   #entry expires after 15 minutes
+packet_cache_ttl        = 900
+packet_cache_maxsize    = 10000
+displayed_packets_cache = TTLCache(maxsize=packet_cache_maxsize, ttl=packet_cache_ttl)
 friendly_device_cache   = TTLCache(maxsize=10000, ttl=3600)  #entry expires after 1 hour
+cache_lock              = threading.Lock()
+CACHE_SETTINGS_FILE     = "central-cache.json"
+CENTRAL_URL_FILE        = "central-url.txt"
+_cache_settings_mtime   = None
+_cache_settings_etag    = None
 key_count               = 0
 friendly_devices_dict   = None
 probe_history           = defaultdict(lambda: {"ssids": set(), "ie_hash": None})
@@ -861,6 +872,127 @@ def get_keypress(timeout=None):
 
 
 
+def _cache_settings_path():
+    base = os.path.dirname(os.path.abspath(PacketDB)) if PacketDB else os.getcwd()
+    if not base:
+        base = os.getcwd()
+    return os.path.join(base, CACHE_SETTINGS_FILE)
+
+
+def apply_packet_cache_settings(ttl_seconds, maxsize, *, reason=""):
+    """Rebuild the packet duplicate TTL cache if Central sent new values."""
+    global displayed_packets_cache, packet_cache_ttl, packet_cache_maxsize, key_count
+    try:
+        ttl_seconds = int(ttl_seconds)
+        maxsize = int(maxsize)
+    except (TypeError, ValueError):
+        return False
+    ttl_seconds = max(30, min(ttl_seconds, 86400))
+    maxsize = max(100, min(maxsize, 1000000))
+    if ttl_seconds == packet_cache_ttl and maxsize == packet_cache_maxsize:
+        return False
+    with cache_lock:
+        displayed_packets_cache = TTLCache(maxsize=maxsize, ttl=ttl_seconds)
+        packet_cache_ttl = ttl_seconds
+        packet_cache_maxsize = maxsize
+        key_count = 0
+    msg = f"Packet cache from Central: {ttl_seconds}s window, {maxsize} keys"
+    if reason:
+        msg = f"{msg} ({reason})"
+    try:
+        if curses_enabled and InfoWindow:
+            InfoWindow.QueuePrint(msg, Color=5)
+        else:
+            log_message(msg, ShowTime=True)
+    except Exception:
+        pass
+    return True
+
+
+def _central_base_urls():
+    urls = []
+    env = (os.environ.get("SENTINEL_CENTRAL_URL") or "").strip()
+    if env:
+        urls.append(env.rstrip("/"))
+    path = os.path.join(os.path.dirname(_cache_settings_path()), CENTRAL_URL_FILE)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    urls.append(line.rstrip("/"))
+    except OSError:
+        pass
+    seen = set()
+    unique = []
+    for url in urls:
+        if url not in seen:
+            seen.add(url)
+            unique.append(url)
+    return unique
+
+
+def _fetch_cache_settings_http():
+    global _cache_settings_etag
+    name = (os.environ.get("SENTINEL_CLIENT_NAME") or "").strip()
+    name_file = os.path.join(os.path.dirname(_cache_settings_path()), "client-name.txt")
+    if not name:
+        try:
+            with open(name_file, encoding="utf-8") as handle:
+                name = handle.read().strip()
+        except OSError:
+            name = ""
+    query = f"?name={urllib.parse.quote(name)}" if name else ""
+    for base in _central_base_urls():
+        url = base + "/api/sensor-cache" + query
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Sentinel-sensor"})
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        etag = (
+            str(data.get("packet_cache_ttl_seconds")),
+            str(data.get("packet_cache_maxsize")),
+            str(data.get("updated_at") or ""),
+        )
+        if etag == _cache_settings_etag:
+            return
+        _cache_settings_etag = etag
+        apply_packet_cache_settings(
+            data.get("packet_cache_ttl_seconds", packet_cache_ttl),
+            data.get("packet_cache_maxsize", packet_cache_maxsize),
+            reason=base,
+        )
+        return
+
+
+def maybe_reload_cache_settings():
+    """Load packet-cache TTL from Central (local JSON, else HTTP)."""
+    global _cache_settings_mtime
+    path = _cache_settings_path()
+    loaded_file = False
+    try:
+        mtime = os.path.getmtime(path)
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+        if _cache_settings_mtime is None or mtime != _cache_settings_mtime:
+            _cache_settings_mtime = mtime
+            if isinstance(data, dict):
+                apply_packet_cache_settings(
+                    data.get("packet_cache_ttl_seconds", packet_cache_ttl),
+                    data.get("packet_cache_maxsize", packet_cache_maxsize),
+                    reason=os.path.basename(path),
+                )
+                loaded_file = True
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        pass
+    if not loaded_file:
+        _fetch_cache_settings_http()
+
+
 def DisplayHeader():
     global HeaderWindow
     global StatusWindow
@@ -884,6 +1016,8 @@ def DisplayHeader():
     global console_region
     global show_friendly
     global ProcessedPacket
+    global packet_cache_ttl
+    global packet_cache_maxsize
 
 
     try:
@@ -936,7 +1070,8 @@ def DisplayHeader():
                 9: f"Time:                {time_display}"               + filler,
                10: f"Last GPS signal:     {thegpsdate}"                 + filler,
                11: f"Longitude:           {longitude}"                  + filler,
-               12: f"Latitude:            {latitude}"                   + filler
+               12: f"Latitude:            {latitude}"                   + filler,
+               13: f"Packet cache:        {packet_cache_ttl}s / {packet_cache_maxsize}" + filler
 
         }
 
@@ -1066,10 +1201,14 @@ def ProcessPacketInfo():
     # To declutter the screen we don't display items that are in the cache
     # the cache expires after X minutes
     hide_friendly = ProcessedPacket.FriendlyDevice and (not show_friendly)
-    if (not edit_mode) and (not hide_friendly) and packet_key not in displayed_packets_cache:
-      #add to cache
-      displayed_packets_cache[packet_key] = True
-      key_count = len(displayed_packets_cache)
+    is_new_packet = False
+    if (not edit_mode) and (not hide_friendly):
+      with cache_lock:
+        if packet_key not in displayed_packets_cache:
+          displayed_packets_cache[packet_key] = True
+          key_count = len(displayed_packets_cache)
+          is_new_packet = True
+    if (not edit_mode) and (not hide_friendly) and is_new_packet:
   
       #DetailsWindow.QueuePrint(f"{key_count} - {FriendlyName} - {FriendlyType} - {FriendlyBrand} - {ssid}")
       if curses_enabled: 
@@ -3639,10 +3778,14 @@ def main(stdscr):
     #----------------------------------
     #-- Main Loop
     #----------------------------------
+    last_cache_check = 0.0
+    maybe_reload_cache_settings()
     try:
         while True:
-
-         
+          now_check = time.time()
+          if now_check - last_cache_check >= 15:
+            maybe_reload_cache_settings()
+            last_cache_check = now_check
 
           #Check for keyboard input
           if curses_enabled:

@@ -12,13 +12,38 @@
 
     <section class="set-panel">
       <h2>Packets</h2>
-      <p class="hint">Tags apply to every packet with that source MAC, including future pulls.</p>
+      <p class="hint">Tags apply to every packet with that source MAC, including future pulls. Click a column heading to sort.</p>
       <form class="filter-bar" method="get" action="/packets">
+        <input type="hidden" name="sort" value="{{ sort }}">
+        <input type="hidden" name="dir" value="{{ dir }}">
         <input class="set-input" type="search" name="q" value="{{ q }}" placeholder="MAC, SSID, vendor, tag, client…">
         <select class="set-select" name="client_id">
           <option value="">All clients</option>
           {% for c in clients %}
           <option value="{{ c.id }}" {% if client_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+          {% endfor %}
+        </select>
+        <select class="set-select" name="friendly">
+          <option value="" {% if not friendly %}selected{% endif %}>All devices</option>
+          <option value="1" {% if friendly == '1' %}selected{% endif %}>Friendly</option>
+          <option value="0" {% if friendly == '0' %}selected{% endif %}>Not friendly</option>
+        </select>
+        <select class="set-select" name="device_type">
+          <option value="">All device types</option>
+          {% for t in choices.device_types %}
+          <option value="{{ t }}" {% if device_type == t %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+        <select class="set-select" name="packet_type">
+          <option value="">All packet types</option>
+          {% for t in choices.packet_types %}
+          <option value="{{ t }}" {% if packet_type == t %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+        <select class="set-select" name="band">
+          <option value="">All bands</option>
+          {% for b in choices.bands %}
+          <option value="{{ b }}" {% if band == b %}selected{% endif %}>{{ b }}</option>
           {% endfor %}
         </select>
         <select class="set-select" name="tag">
@@ -27,7 +52,19 @@
           <option value="{{ t }}" {% if tag == t %}selected{% endif %}>{{ t }}</option>
           {% endfor %}
         </select>
+        <select class="set-select" name="hours">
+          <option value="" {% if not hours %}selected{% endif %}>Any time</option>
+          {% for h in hour_choices %}
+          <option value="{{ h }}" {% if hours == h|string %}selected{% endif %}>
+            {% if h == 168 %}Last 7 days{% elif h == 1 %}Last hour{% else %}Last {{ h }} hours{% endif %}
+          </option>
+          {% endfor %}
+        </select>
+        <input class="set-input set-input-narrow" type="search" name="ssid" value="{{ ssid }}" placeholder="SSID">
+        <input class="set-input set-input-narrow" type="number" name="signal_min" value="{{ signal_min }}" placeholder="Min dB">
+        <input class="set-input set-input-narrow" type="number" name="signal_max" value="{{ signal_max }}" placeholder="Max dB">
         <button type="submit" class="btn btn-primary">Filter</button>
+        <a class="btn btn-secondary" href="{{ clear_url }}">Clear</a>
       </form>
       <datalist id="tag-suggestions">
         {% for t in tags %}
@@ -42,18 +79,37 @@
           data-q="{{ q }}"
           data-client-id="{{ client_id or '' }}"
           data-tag="{{ tag }}"
+          data-friendly="{{ friendly }}"
+          data-device-type="{{ device_type }}"
+          data-packet-type="{{ packet_type }}"
+          data-band="{{ band }}"
+          data-ssid="{{ ssid }}"
+          data-signal-min="{{ signal_min }}"
+          data-signal-max="{{ signal_max }}"
+          data-hours="{{ hours }}"
+          data-sort="{{ sort }}"
+          data-dir="{{ dir }}"
           data-newest-id="{{ packets[0].id if packets else 0 }}">
           <thead>
             <tr>
               <th></th>
-              <th>Captured</th>
-              <th>Device</th>
-              <th>Source MAC</th>
-              <th>Friendly</th>
-              <th>SSID</th>
-              <th>Type</th>
-              <th>Signal</th>
-              <th>Tags</th>
+              {% for col, label in [
+                ('captured', 'Captured'),
+                ('device', 'Device'),
+                ('mac', 'Source MAC'),
+                ('friendly', 'Friendly'),
+                ('ssid', 'SSID'),
+                ('type', 'Type'),
+                ('signal', 'Signal'),
+                ('tags', 'Tags'),
+              ] %}
+              <th {% if sort == col %}aria-sort="{{ 'descending' if dir == 'desc' else 'ascending' }}"{% endif %}>
+                <a class="sort-link" href="{{ sort_links[col] }}">
+                  {{ label }}
+                  {% if sort == col %}<span class="sort-ind" aria-hidden="true">{{ '▼' if dir == 'desc' else '▲' }}</span>{% endif %}
+                </a>
+              </th>
+              {% endfor %}
             </tr>
           </thead>
           <tbody id="packet-tbody">

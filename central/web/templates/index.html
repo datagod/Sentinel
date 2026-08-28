@@ -10,7 +10,7 @@
     <div class="set-main">
     {% include "_nav.html" %}
 
-    <main class="main">
+    <main class="main main--single">
       <section class="panel">
         <div class="panel-head">
           <h2>Network</h2>
@@ -79,9 +79,11 @@
         </div>
         <div class="log-scroll table-wrap">
           {% if packets %}
+          {% set has_frigate = packets | selectattr("frigate_hits") | list %}
           <table class="data-table">
             <thead>
               <tr>
+                {% if has_frigate %}<th>Frigate</th>{% endif %}
                 <th>Time</th>
                 <th>Client</th>
                 <th>MAC</th>
@@ -91,7 +93,25 @@
             </thead>
             <tbody>
               {% for p in packets %}
-              <tr>
+              <tr{% if p.frigate_hits %} class="row-frigate-hit"{% endif %}>
+                {% if has_frigate %}
+                <td>
+                  {% if p.frigate_hits %}
+                  <div class="frigate-hit">
+                    <button type="button" class="btn-film{% if p.frigate_severity == 'alert' %} btn-frigate-alert{% endif %}"
+                      title="{{ p.frigate_label }} footage"
+                      data-reviews="{{ p.frigate_review_ids }}"
+                      data-events="{{ p.frigate_event_ids }}"
+                      data-ts="{{ (p.CaptureDate or p.ingested_at) | unix }}"
+                      data-mac="{{ p.SourceMAC }}"
+                      aria-label="Open {{ p.frigate_label }} footage">
+                      <img src="/static/img/film-reel.svg" width="18" height="18" alt="">
+                    </button>
+                    <span class="frigate-hit-label frigate-sev-{{ p.frigate_severity }}">{{ p.frigate_label }}</span>
+                  </div>
+                  {% endif %}
+                </td>
+                {% endif %}
                 <td>{{ (p.CaptureDate or p.ingested_at) | localtime }}</td>
                 <td>{{ p.client_name }}</td>
                 <td><a href="/details?mac={{ p.SourceMAC }}&packet={{ p.id }}">{{ p.SourceMAC }}</a></td>

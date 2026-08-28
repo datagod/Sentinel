@@ -15,6 +15,44 @@ T = TypeVar("T")
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
+
+def _parse_ts(value: Any) -> datetime | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None) if value.tzinfo else value
+    text = str(value).strip().replace("T", " ")
+    if text.endswith("Z"):
+        text = text[:-1]
+    if "." in text:
+        text = text.split(".", 1)[0]
+    try:
+        return datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+
+
+def format_elapsed(start: Any, *, now: datetime | None = None) -> str:
+    begin = _parse_ts(start)
+    if not begin:
+        return "—"
+    current = now or datetime.now(timezone.utc).replace(tzinfo=None)
+    seconds = int((current - begin).total_seconds())
+    if seconds < 0:
+        seconds = 0
+    if seconds < 60:
+        return f"{seconds}s"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes} min"
+    hours = minutes // 60
+    mins = minutes % 60
+    if hours < 48:
+        return f"{hours}h {mins}m" if mins else f"{hours}h"
+    days = hours // 24
+    rem_h = hours % 24
+    return f"{days}d {rem_h}h" if rem_h else f"{days}d"
+
 PACKET_COLUMNS = (
     "CaptureDate",
     "FriendlyName",
@@ -53,6 +91,8 @@ CREATE TABLE IF NOT EXISTS Client (
     smb_username TEXT,
     smb_password TEXT,
     enabled INTEGER NOT NULL DEFAULT 1,
+    packet_cache_ttl_seconds INTEGER NOT NULL DEFAULT 900,
+    packet_cache_maxsize INTEGER NOT NULL DEFAULT 10000,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -125,6 +165,9 @@ CREATE TABLE IF NOT EXISTS Device (
     tracked INTEGER NOT NULL DEFAULT 0,
     presence TEXT,
     last_signal INTEGER,
+    arrived_at TEXT,
+    departed_at TEXT,
+    spoken_name TEXT,
     source TEXT,
     notes TEXT,
     first_seen TEXT,
@@ -238,6 +281,17 @@ CREATE TABLE IF NOT EXISTS VoiceAlertQueue (
 
 CREATE INDEX IF NOT EXISTS i_voicealertlog_key ON VoiceAlertLog(alert_id, mac, spoken_at);
 CREATE INDEX IF NOT EXISTS i_voicealertqueue_played ON VoiceAlertQueue(played, id);
+
+CREATE TABLE IF NOT EXISTS PresenceEvent (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mac TEXT NOT NULL,
+    event TEXT NOT NULL,
+    at TEXT NOT NULL,
+    signal INTEGER,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS i_presenceevent_mac ON PresenceEvent(mac, id);
 """
 
 
@@ -253,13 +307,19 @@ def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
     _ensure_column(conn, "Client", "smb_username", "TEXT")
     _ensure_column(conn, "Client", "smb_password", "TEXT")
+    _ensure_column(conn, "Client", "packet_cache_ttl_seconds", "INTEGER NOT NULL DEFAULT 900")
+    _ensure_column(conn, "Client", "packet_cache_maxsize", "INTEGER NOT NULL DEFAULT 10000")
     _ensure_column(conn, "VoiceAlert", "min_packets", "INTEGER")
     _ensure_column(conn, "VoiceAlert", "window_minutes", "INTEGER")
     _ensure_column(conn, "VoiceAlert", "quiet_minutes", "INTEGER")
     _ensure_column(conn, "Device", "tracked", "INTEGER NOT NULL DEFAULT 0")
     _ensure_column(conn, "Device", "presence", "TEXT")
     _ensure_column(conn, "Device", "last_signal", "INTEGER")
+    _ensure_column(conn, "Device", "arrived_at", "TEXT")
+    _ensure_column(conn, "Device", "departed_at", "TEXT")
+    _ensure_column(conn, "Device", "spoken_name", "TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS i_device_tracked ON Device(tracked)")
+    conn.execute("CREATE INDEX IF NOT EXISTS i_presenceevent_mac ON PresenceEvent(mac, id)")
     _cleanse_device_types(conn)
     _seed_voice_alerts(conn)
     conn.commit()
@@ -1054,7 +1114,7 @@ def list_clients(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
         SELECT c.id, c.name, c.db_path, c.notes, c.smb_username, c.smb_password,
-               c.enabled, c.created_at,
+               c.enabled, c.created_at, c.packet_cache_ttl_seconds, c.packet_cache_maxsize,
                s.last_source_id, s.last_capture_date, s.last_success_at,
                s.last_error, s.last_rows, s.last_status,
                (SELECT COUNT(*) FROM Packet p WHERE p.client_id = c.id) AS packet_count
@@ -1070,7 +1130,7 @@ def get_client(conn: sqlite3.Connection, client_id: int) -> dict[str, Any] | Non
     row = conn.execute(
         """
         SELECT c.id, c.name, c.db_path, c.notes, c.smb_username, c.smb_password,
-               c.enabled, c.created_at,
+               c.enabled, c.created_at, c.packet_cache_ttl_seconds, c.packet_cache_maxsize,
                s.last_source_id, s.last_capture_date, s.last_success_at,
                s.last_error, s.last_rows, s.last_status
         FROM Client c
@@ -1082,6 +1142,14 @@ def get_client(conn: sqlite3.Connection, client_id: int) -> dict[str, Any] | Non
     return dict(row) if row else None
 
 
+def clamp_packet_cache_ttl(value: Any) -> int:
+    return _clamp_alert_threshold(value, default=900, lo=30, hi=86400)
+
+
+def clamp_packet_cache_maxsize(value: Any) -> int:
+    return _clamp_alert_threshold(value, default=10000, lo=100, hi=1000000)
+
+
 def add_client(
     conn: sqlite3.Connection,
     name: str,
@@ -1090,11 +1158,16 @@ def add_client(
     enabled: bool = True,
     smb_username: str = "",
     smb_password: str = "",
+    packet_cache_ttl_seconds: Any = None,
+    packet_cache_maxsize: Any = None,
 ) -> dict[str, Any]:
     cur = conn.execute(
         """
-        INSERT INTO Client (name, db_path, notes, smb_username, smb_password, enabled)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO Client (
+            name, db_path, notes, smb_username, smb_password, enabled,
+            packet_cache_ttl_seconds, packet_cache_maxsize
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             name.strip(),
@@ -1103,6 +1176,8 @@ def add_client(
             (smb_username or "").strip(),
             smb_password or "",
             1 if enabled else 0,
+            clamp_packet_cache_ttl(packet_cache_ttl_seconds),
+            clamp_packet_cache_maxsize(packet_cache_maxsize),
         ),
     )
     conn.commit()
@@ -1121,15 +1196,28 @@ def update_client(
     enabled: bool | None = None,
     smb_username: str | None = None,
     smb_password: str | None = None,
+    packet_cache_ttl_seconds: Any = None,
+    packet_cache_maxsize: Any = None,
 ) -> dict[str, Any] | None:
     client = get_client(conn, client_id)
     if not client:
         return None
+    ttl = (
+        clamp_packet_cache_ttl(packet_cache_ttl_seconds)
+        if packet_cache_ttl_seconds is not None
+        else clamp_packet_cache_ttl(client.get("packet_cache_ttl_seconds"))
+    )
+    maxsize = (
+        clamp_packet_cache_maxsize(packet_cache_maxsize)
+        if packet_cache_maxsize is not None
+        else clamp_packet_cache_maxsize(client.get("packet_cache_maxsize"))
+    )
     conn.execute(
         """
         UPDATE Client
            SET name = ?, db_path = ?, notes = ?, enabled = ?,
-               smb_username = ?, smb_password = ?
+               smb_username = ?, smb_password = ?,
+               packet_cache_ttl_seconds = ?, packet_cache_maxsize = ?
          WHERE id = ?
         """,
         (
@@ -1139,6 +1227,8 @@ def update_client(
             1 if (client["enabled"] if enabled is None else enabled) else 0,
             (smb_username if smb_username is not None else (client.get("smb_username") or "")).strip(),
             smb_password if smb_password is not None else (client.get("smb_password") or ""),
+            ttl,
+            maxsize,
             client_id,
         ),
     )
@@ -1204,14 +1294,71 @@ def dashboard_stats(conn: sqlite3.Connection) -> dict[str, Any]:
         "SELECT MAX(ingested_at) AS t FROM Packet"
     ).fetchone()["t"]
     latest_id = conn.execute("SELECT MAX(id) AS n FROM Packet").fetchone()["n"]
+    tracked = conn.execute(
+        "SELECT COUNT(*) AS n FROM Device WHERE tracked = 1"
+    ).fetchone()["n"]
+    tracked_inside = conn.execute(
+        "SELECT COUNT(*) AS n FROM Device WHERE tracked = 1 AND presence = 'inside'"
+    ).fetchone()["n"]
+    latest_presence = conn.execute(
+        "SELECT MAX(id) AS n FROM PresenceEvent"
+    ).fetchone()["n"]
     return {
         "clients": clients,
         "enabled_clients": enabled,
         "packets": packets,
         "devices": devices,
         "friendly_devices": friendly,
+        "tracked_devices": tracked,
+        "tracked_inside": tracked_inside,
         "last_ingest": last,
         "latest_packet_id": int(latest_id or 0),
+        "latest_presence_id": int(latest_presence or 0),
+    }
+
+
+PACKET_SORTS = {
+    "captured": ("COALESCE(p.CaptureDate, p.ingested_at)", "desc"),
+    "device": ("LOWER(COALESCE(device_name, p.FriendlyName, p.DeviceType, ''))", "asc"),
+    "mac": ("p.SourceMAC", "asc"),
+    "friendly": ("IFNULL(device_friendly, 0)", "desc"),
+    "ssid": ("LOWER(IFNULL(p.SSID, ''))", "asc"),
+    "type": ("LOWER(COALESCE(p.DeviceType, p.PacketType, ''))", "asc"),
+    "signal": ("p.Signal", "desc"),
+    "tags": ("LOWER(IFNULL(tags, ''))", "asc"),
+}
+
+
+def packet_sort_clause(sort: str | None, direction: str | None) -> tuple[str, str, str]:
+    key = str(sort or "captured").strip().lower()
+    if key not in PACKET_SORTS:
+        key = "captured"
+    expr, default_dir = PACKET_SORTS[key]
+    way = str(direction or default_dir).strip().lower()
+    if way not in ("asc", "desc"):
+        way = default_dir
+    extra = ""
+    if key == "signal":
+        extra = "(p.Signal IS NULL) ASC, "
+    return key, way, f" ORDER BY {extra}{expr} {way.upper()}, p.id DESC"
+
+
+def packet_filter_choices(conn: sqlite3.Connection) -> dict[str, list[str]]:
+    def _distinct(column: str) -> list[str]:
+        rows = conn.execute(
+            f"""
+            SELECT DISTINCT {column} AS v FROM Packet
+             WHERE {column} IS NOT NULL AND TRIM({column}) != ''
+             ORDER BY {column} COLLATE NOCASE
+             LIMIT 200
+            """
+        ).fetchall()
+        return [str(r["v"]) for r in rows if str(r["v"]).strip()]
+
+    return {
+        "device_types": _distinct("DeviceType"),
+        "packet_types": _distinct("PacketType"),
+        "bands": _distinct("Band"),
     }
 
 
@@ -1225,6 +1372,16 @@ def recent_packets(
     tag: str | None = None,
     source_mac: str | None = None,
     after_id: int | None = None,
+    friendly: bool | None = None,
+    device_type: str | None = None,
+    packet_type: str | None = None,
+    band: str | None = None,
+    ssid: str | None = None,
+    signal_min: int | None = None,
+    signal_max: int | None = None,
+    hours: int | None = None,
+    sort: str | None = None,
+    sort_dir: str | None = None,
 ) -> list[dict[str, Any]]:
     sql = """
         SELECT p.*, c.name AS client_name,
@@ -1278,7 +1435,43 @@ def recent_packets(
           )
         """
         params.extend([like] * 8)
-    sql += " ORDER BY COALESCE(p.CaptureDate, p.ingested_at) DESC, p.id DESC LIMIT ?"
+    if friendly is True:
+        sql += f"""
+          AND EXISTS (
+                SELECT 1 FROM Device d
+                 WHERE d.mac = {_mac_match_sql("p.SourceMAC")} AND d.friendly = 1
+          )
+        """
+    elif friendly is False:
+        sql += f"""
+          AND NOT EXISTS (
+                SELECT 1 FROM Device d
+                 WHERE d.mac = {_mac_match_sql("p.SourceMAC")} AND d.friendly = 1
+          )
+        """
+    if device_type:
+        sql += " AND p.DeviceType = ?"
+        params.append(device_type)
+    if packet_type:
+        sql += " AND p.PacketType = ?"
+        params.append(packet_type)
+    if band:
+        sql += " AND p.Band = ?"
+        params.append(band)
+    if ssid:
+        sql += " AND IFNULL(p.SSID, '') LIKE ?"
+        params.append(f"%{ssid}%")
+    if signal_min is not None:
+        sql += " AND p.Signal IS NOT NULL AND p.Signal >= ?"
+        params.append(int(signal_min))
+    if signal_max is not None:
+        sql += " AND p.Signal IS NOT NULL AND p.Signal <= ?"
+        params.append(int(signal_max))
+    if hours:
+        sql += " AND datetime(p.CaptureDate) >= datetime('now', ?)"
+        params.append(f"-{int(hours)} hours")
+    _sort_key, _sort_dir, order_sql = packet_sort_clause(sort, sort_dir)
+    sql += order_sql + " LIMIT ?"
     params.append(max(1, min(limit, 500)))
     if not after_id:
         sql += " OFFSET ?"
@@ -1718,6 +1911,32 @@ def set_friendly(
     return device
 
 
+def set_spoken_name(conn: sqlite3.Connection, mac: str, spoken_name: str | None) -> dict[str, Any]:
+    mac_norm = _normalize_mac(mac)
+    now = _now()
+    phrase = " ".join(str(spoken_name or "").split())
+    if len(phrase) > 200:
+        phrase = phrase[:200].rstrip()
+    existing = get_device(conn, mac_norm)
+    if existing:
+        conn.execute(
+            "UPDATE Device SET spoken_name = ?, updated_at = ? WHERE mac = ?",
+            (phrase or None, now, mac_norm),
+        )
+    else:
+        conn.execute(
+            """
+            INSERT INTO Device (mac, spoken_name, friendly, source, imported_at, updated_at)
+            VALUES (?, ?, 0, 'Manual', ?, ?)
+            """,
+            (mac_norm, phrase or None, now, now),
+        )
+    conn.commit()
+    device = get_device(conn, mac_norm)
+    assert device is not None
+    return device
+
+
 def presence_window_minutes(conn: sqlite3.Connection) -> int:
     row = conn.execute(
         "SELECT quiet_minutes FROM VoiceAlert WHERE id = 'left_premises'"
@@ -1730,7 +1949,8 @@ def presence_window_minutes(conn: sqlite3.Connection) -> int:
 def list_tracked_devices(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
-        SELECT mac, name, presence, last_signal, tracked, friendly, device_type
+        SELECT mac, name, spoken_name, presence, last_signal, tracked, friendly, device_type,
+               arrived_at, departed_at, vendor
           FROM Device
          WHERE tracked = 1
         """
@@ -1760,16 +1980,47 @@ def update_device_presence(
     *,
     presence: str,
     last_signal: Any = None,
+    arrived_at: Any = None,
+    departed_at: Any = None,
+    log_event: str | None = None,
     commit: bool = False,
 ) -> None:
+    mac_norm = _normalize_mac(mac)
+    now = _now()
+    sets = [
+        "presence = ?",
+        "last_signal = COALESCE(?, last_signal)",
+        "updated_at = ?",
+    ]
+    params: list[Any] = [presence, last_signal, now]
+    if log_event == "entered":
+        sets.append("arrived_at = ?")
+        sets.append("departed_at = NULL")
+        params.append(str(arrived_at or now))
+    elif log_event == "left":
+        sets.append("departed_at = ?")
+        params.append(str(departed_at or now))
+    else:
+        if presence == "inside" and arrived_at:
+            sets.append("arrived_at = COALESCE(arrived_at, ?)")
+            params.append(str(arrived_at))
+        if presence == "away" and departed_at:
+            sets.append("departed_at = COALESCE(departed_at, ?)")
+            params.append(str(departed_at))
+    params.append(mac_norm)
     conn.execute(
-        """
-        UPDATE Device
-           SET presence = ?, last_signal = COALESCE(?, last_signal), updated_at = ?
-         WHERE mac = ?
-        """,
-        (presence, last_signal, _now(), _normalize_mac(mac)),
+        f"UPDATE Device SET {', '.join(sets)} WHERE mac = ?",
+        params,
     )
+    if log_event in ("entered", "left"):
+        at = arrived_at if log_event == "entered" else departed_at
+        conn.execute(
+            """
+            INSERT INTO PresenceEvent (mac, event, at, signal, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (mac_norm, log_event, str(at or now), last_signal, now),
+        )
     if commit:
         conn.commit()
 
@@ -1805,28 +2056,31 @@ def set_tracked(conn: sqlite3.Connection, mac: str, tracked: bool) -> dict[str, 
     if tracked:
         minutes = presence_window_minutes(conn)
         capture = snap.get("capture_date")
-        last_dt = None
-        if capture:
-            text = str(capture).strip().replace("T", " ")
-            if text.endswith("Z"):
-                text = text[:-1]
-            if "." in text:
-                text = text.split(".", 1)[0]
-            try:
-                last_dt = datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
-            except ValueError:
-                last_dt = None
+        last_dt = _parse_ts(capture)
         now_dt = datetime.now(timezone.utc).replace(tzinfo=None)
         seen_recently = bool(last_dt and now_dt - last_dt < timedelta(minutes=minutes))
         presence = "inside" if seen_recently else "away"
-        conn.execute(
-            """
-            UPDATE Device
-               SET presence = ?, last_signal = COALESCE(?, last_signal), updated_at = ?
-             WHERE mac = ?
-            """,
-            (presence, snap.get("signal"), now, mac_norm),
-        )
+        if presence == "inside":
+            conn.execute(
+                """
+                UPDATE Device
+                   SET presence = ?, last_signal = COALESCE(?, last_signal),
+                       arrived_at = COALESCE(arrived_at, ?), departed_at = NULL,
+                       updated_at = ?
+                 WHERE mac = ?
+                """,
+                (presence, snap.get("signal"), capture or now, now, mac_norm),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE Device
+                   SET presence = ?, last_signal = COALESCE(?, last_signal),
+                       departed_at = COALESCE(departed_at, ?), updated_at = ?
+                 WHERE mac = ?
+                """,
+                (presence, snap.get("signal"), capture or now, now, mac_norm),
+            )
     else:
         conn.execute(
             "UPDATE Device SET presence = NULL, updated_at = ? WHERE mac = ?",
@@ -1836,6 +2090,52 @@ def set_tracked(conn: sqlite3.Connection, mac: str, tracked: bool) -> dict[str, 
     device = get_device(conn, mac_norm)
     assert device is not None
     return device
+
+
+def tracked_presence_report(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT
+            d.mac,
+            d.name,
+            d.vendor,
+            d.device_type,
+            d.friendly,
+            d.presence,
+            d.arrived_at,
+            d.departed_at,
+            d.last_signal,
+            (
+                SELECT MAX(p.CaptureDate)
+                  FROM Packet p
+                 WHERE REPLACE(UPPER(p.SourceMAC), '-', ':') = d.mac
+            ) AS last_seen,
+            (
+                SELECT COUNT(*) FROM PresenceEvent e
+                 WHERE e.mac = d.mac AND e.event = 'entered'
+            ) AS visits
+          FROM Device d
+         WHERE d.tracked = 1
+         ORDER BY CASE d.presence WHEN 'inside' THEN 0 ELSE 1 END,
+                  d.name COLLATE NOCASE,
+                  d.mac
+        """
+    ).fetchall()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        inside = item.get("presence") == "inside"
+        item["on_site"] = inside
+        item["status"] = "on site" if inside else "away"
+        if inside:
+            item["duration_label"] = format_elapsed(item.get("arrived_at"), now=now)
+            item["duration_kind"] = "on site"
+        else:
+            item["duration_label"] = format_elapsed(item.get("departed_at"), now=now)
+            item["duration_kind"] = "away"
+        items.append(item)
+    return items
 
 
 def apply_friendly_to_packets(conn: sqlite3.Connection) -> int:

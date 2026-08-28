@@ -8,14 +8,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Request
+from urllib.parse import urlencode
+
+from fastapi import FastAPI, Query, Request
 from fastapi.templating import Jinja2Templates
 from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from starlette.staticfiles import StaticFiles
 
 from central import __version__
 from central.alerts import dispatch_voice_alerts, live_chatterbox, speak_text
-from central.chatterbox import ChatterboxError, list_voices as chatterbox_list_voices
+from central.chatterbox import (
+    ChatterboxError,
+    VOLUME_CUE_PHRASES,
+    list_voices as chatterbox_list_voices,
+)
 from central.wigle import (
     WigleError,
     fetch_usage as wigle_fetch_usage,
@@ -35,14 +41,19 @@ from central.config import db_path, data_dir, frigate_settings, seed_clients, wi
 from central.tiles import TileError, get_tile, tiles_dir
 from central.frigate import (
     CAMERA_RE,
+    EVENT_ID_RE,
     FrigateError,
     clip_iter,
+    detection_windows as frigate_detection_windows,
     event_bytes,
     event_clip_iter,
+    incidents as frigate_incidents,
     list_cameras as frigate_list_cameras,
     lookup as frigate_lookup,
     nearest_event as frigate_nearest_event,
+    review_preview_bytes,
     snapshot_bytes,
+    windows_covering as frigate_windows_covering,
 )
 from central.db import (
     Store,
@@ -71,6 +82,9 @@ from central.db import (
     list_tags,
     log_activity,
     public_client,
+    PACKET_SORTS,
+    packet_filter_choices,
+    packet_sort_clause,
     recent_packets,
     save_chatterbox_settings,
     save_wigle_settings,
@@ -82,14 +96,17 @@ from central.db import (
     save_voice_alert,
     set_voice_alert_enabled,
     suspicious_activity,
+    tracked_presence_report,
     remove_tag_for_mac,
     set_friendly,
+    set_spoken_name,
     set_tracked,
     update_client,
     upsert_devices,
     upsert_frigate_cameras,
 )
 from central.fing_import import SOURCE_FING, devices_from_fing
+from central.sensor_cache import cache_settings_payload, push_client_cache_settings
 from central.ingest import ingest_all, ingest_client
 from central.map_plot import plot_device
 
@@ -161,6 +178,75 @@ def to_unix_ts(value: Any) -> str:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return str(int(parsed.timestamp()))
+
+
+def to_unix_float(value: Any) -> float | None:
+    text = to_unix_ts(value)
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def _frigate_id_list(raw: str | None) -> list[str]:
+    ids: list[str] = []
+    seen: set[str] = set()
+    for part in str(raw or "").split(","):
+        item = part.strip()
+        if not item or item in seen or not EVENT_ID_RE.match(item):
+            continue
+        seen.add(item)
+        ids.append(item)
+    return ids
+
+
+def _frigate_hit_label(hits: list[dict[str, Any]]) -> tuple[str, str]:
+    if not hits:
+        return "", ""
+    cameras: list[str] = []
+    seen: set[str] = set()
+    for hit in hits:
+        cam = str(hit.get("camera") or "").strip()
+        if cam and cam not in seen:
+            seen.add(cam)
+            cameras.append(cam)
+    alerts = sum(1 for h in hits if str(h.get("severity") or "") == "alert")
+    severity = "alert" if alerts else "detection"
+    if len(cameras) > 1:
+        return f"{len(cameras)} cameras", severity
+    camera = cameras[0] if cameras else "Frigate"
+    if len(hits) == 1:
+        extra = hits[0].get("severity") or severity
+        return f"{camera} · {extra}", severity
+    kind = "alert" if alerts == len(hits) else ("detection" if not alerts else "alert")
+    count_word = f"{len(hits)} {kind}s" if len(hits) != 1 else kind
+    return f"{camera} · {count_word}", severity
+
+
+def _attach_frigate_hits(
+    packets: list[dict[str, Any]], windows: list[dict[str, Any]]
+) -> None:
+    for packet in packets:
+        ts = to_unix_float(packet.get("CaptureDate") or packet.get("ingested_at"))
+        hits = frigate_windows_covering(ts, windows) if ts is not None else []
+        review_ids = [h["id"] for h in hits if h.get("kind") == "review"]
+        event_ids: list[str] = []
+        seen: set[str] = set()
+        for hit in hits:
+            for eid in hit.get("event_ids") or (
+                [hit["id"]] if hit.get("kind") == "event" else []
+            ):
+                if eid not in seen:
+                    seen.add(eid)
+                    event_ids.append(eid)
+        label, severity = _frigate_hit_label(hits)
+        packet["frigate_hits"] = hits
+        packet["frigate_review_ids"] = ",".join(review_ids)
+        packet["frigate_event_ids"] = ",".join(event_ids)
+        packet["frigate_label"] = label
+        packet["frigate_severity"] = severity
 
 
 TEMPLATES.env.filters["localtime"] = format_local_time
@@ -275,6 +361,30 @@ def _optional_int(value: str | int | None) -> int | None:
         return int(text)
     except (TypeError, ValueError):
         return None
+
+
+def _push_cache_settings(state: AppState, client: dict[str, Any] | None) -> None:
+    if not client:
+        return
+    ok, message = push_client_cache_settings(client)
+    name = client.get("name") or "client"
+    if ok:
+        state.store.run(
+            lambda c: log_activity(
+                c,
+                f"Pushed packet-cache settings to {name} ({message})",
+                source="clients",
+            )
+        )
+        return
+    state.store.run(
+        lambda c: log_activity(
+            c,
+            f"Could not push packet-cache settings to {name}: {message}",
+            level="warning",
+            source="clients",
+        )
+    )
 
 
 def _ingest_all_with_alerts(state: AppState):
@@ -392,6 +502,28 @@ def create_app(settings: dict[str, Any]) -> FastAPI:
     async def index(request: Request):
         clients = _public_clients(state)
         packets = state.store.run(lambda c: recent_packets(c, limit=40))
+        stamps = [
+            ts
+            for ts in (
+                to_unix_float(p.get("CaptureDate") or p.get("ingested_at"))
+                for p in packets
+            )
+            if ts is not None
+        ]
+        windows: list[dict[str, Any]] = []
+        if stamps:
+            fg = _live_frigate(state)
+            try:
+                windows = await asyncio.to_thread(
+                    frigate_detection_windows,
+                    fg["base_url"],
+                    min(stamps),
+                    max(stamps),
+                    exclude_cameras=fg.get("disabled_cameras") or [],
+                )
+            except (FrigateError, OSError, ValueError):
+                windows = []
+        _attach_frigate_hits(packets, windows)
         return TEMPLATES.TemplateResponse(
             request,
             "index.html",
@@ -410,38 +542,125 @@ def create_app(settings: dict[str, Any]) -> FastAPI:
             {**_nav("clients", state), "clients": _public_clients(state)},
         )
 
+    def _packet_filters(
+        *,
+        q: str = "",
+        client_id: str | None = None,
+        tag: str = "",
+        friendly: str = "",
+        device_type: str = "",
+        packet_type: str = "",
+        band: str = "",
+        ssid: str = "",
+        signal_min: str = "",
+        signal_max: str = "",
+        hours: str = "",
+        sort: str = "captured",
+        sort_dir: str = "",
+    ) -> dict[str, Any]:
+        client_pk = _optional_int(client_id)
+        friendly_flag = {"1": True, "0": False, "yes": True, "no": False}.get(
+            str(friendly).lower(), None
+        )
+        sort_key, sort_way, _ = packet_sort_clause(sort, sort_dir)
+        return {
+            "query": q.strip() or None,
+            "client_id": client_pk,
+            "tag": tag.strip() or None,
+            "friendly": friendly_flag,
+            "device_type": device_type.strip() or None,
+            "packet_type": packet_type.strip() or None,
+            "band": band.strip() or None,
+            "ssid": ssid.strip() or None,
+            "signal_min": _optional_int(signal_min),
+            "signal_max": _optional_int(signal_max),
+            "hours": _optional_int(hours),
+            "sort": sort_key,
+            "sort_dir": sort_way,
+        }
+
+    def _packets_page_url(**values: Any) -> str:
+        cleaned = {k: v for k, v in values.items() if v not in (None, "", [])}
+        query = urlencode(cleaned, doseq=True)
+        return "/packets?" + query if query else "/packets"
+
     @app.get("/packets", response_class=HTMLResponse)
     async def packets_page(
         request: Request,
         q: str = "",
         client_id: str | None = None,
         tag: str = "",
+        friendly: str = "",
+        device_type: str = "",
+        packet_type: str = "",
+        band: str = "",
+        ssid: str = "",
+        signal_min: str = "",
+        signal_max: str = "",
+        hours: str = "",
+        sort: str = "captured",
+        dir: str = Query(""),
         limit: int = 200,
     ):
         page_size = max(1, min(limit, 200))
-        client_pk = _optional_int(client_id)
-        packets = state.store.run(
-            lambda c: recent_packets(
-                c,
-                limit=page_size,
-                query=q.strip() or None,
-                client_id=client_pk,
-                tag=tag.strip() or None,
-            )
+        filters = _packet_filters(
+            q=q,
+            client_id=client_id,
+            tag=tag,
+            friendly=friendly,
+            device_type=device_type,
+            packet_type=packet_type,
+            band=band,
+            ssid=ssid,
+            signal_min=signal_min,
+            signal_max=signal_max,
+            hours=hours,
+            sort=sort,
+            sort_dir=dir,
         )
+        packets = state.store.run(
+            lambda c: recent_packets(c, limit=page_size, **filters)
+        )
+        visible = {
+            "q": q,
+            "client_id": filters["client_id"] or "",
+            "tag": tag,
+            "friendly": friendly,
+            "device_type": device_type,
+            "packet_type": packet_type,
+            "band": band,
+            "ssid": ssid,
+            "signal_min": signal_min,
+            "signal_max": signal_max,
+            "hours": hours,
+            "sort": filters["sort"],
+            "dir": filters["sort_dir"],
+        }
+        sort_links = {}
+        for col, (_expr, default_dir) in PACKET_SORTS.items():
+            next_dir = (
+                ("asc" if filters["sort_dir"] == "desc" else "desc")
+                if filters["sort"] == col
+                else default_dir
+            )
+            sort_links[col] = _packets_page_url(
+                **{**visible, "sort": col, "dir": next_dir}
+            )
         return TEMPLATES.TemplateResponse(
             request,
             "packets.html",
             {
                 **_nav("packets", state),
                 "packets": packets,
-                "q": q,
-                "client_id": client_pk,
-                "tag": tag,
+                **visible,
                 "page_size": page_size,
                 "has_more": len(packets) == page_size,
                 "clients": _public_clients(state),
                 "tags": state.store.run(list_tags),
+                "choices": state.store.run(packet_filter_choices),
+                "sort_links": sort_links,
+                "clear_url": "/packets",
+                "hour_choices": (1, 2, 6, 12, 24, 48, 168),
             },
         )
 
@@ -555,7 +774,9 @@ def create_app(settings: dict[str, Any]) -> FastAPI:
     @app.get("/reports", response_class=HTMLResponse)
     async def reports_page(request: Request, hours: int = 24):
         hours = max(1, min(hours, 168))
+        stats = state.store.run(dashboard_stats)
         rows = state.store.run(lambda c: suspicious_activity(c, hours=hours))
+        tracked = state.store.run(tracked_presence_report)
         return TEMPLATES.TemplateResponse(
             request,
             "reports.html",
@@ -564,9 +785,9 @@ def create_app(settings: dict[str, Any]) -> FastAPI:
                 "hours": hours,
                 "hour_choices": (1, 2, 6, 12, 24, 48, 72, 168),
                 "rows": rows,
-                "latest_packet_id": state.store.run(
-                    lambda c: int((dashboard_stats(c).get("latest_packet_id") or 0))
-                ),
+                "tracked_rows": tracked,
+                "latest_packet_id": int(stats.get("latest_packet_id") or 0),
+                "latest_presence_id": int(stats.get("latest_presence_id") or 0),
             },
         )
 
@@ -574,6 +795,16 @@ def create_app(settings: dict[str, Any]) -> FastAPI:
         item = dict(row)
         item["last_seen_local"] = format_local_time(row.get("last_seen"))
         item["unix_ts"] = to_unix_ts(row.get("last_seen"))
+        return item
+
+    def _tracked_public(row: dict[str, Any]) -> dict[str, Any]:
+        item = dict(row)
+        item["arrived_local"] = format_local_time(row.get("arrived_at"))
+        item["departed_local"] = format_local_time(row.get("departed_at"))
+        item["last_seen_local"] = format_local_time(row.get("last_seen"))
+        item["unix_ts"] = to_unix_ts(row.get("last_seen"))
+        if item.get("on_site"):
+            item["departed_local"] = "—"
         return item
 
     @app.get("/api/reports")
@@ -586,6 +817,16 @@ def create_app(settings: dict[str, Any]) -> FastAPI:
             "latest_packet_id": state.store.run(
                 lambda c: int((dashboard_stats(c).get("latest_packet_id") or 0))
             ),
+        }
+
+    @app.get("/api/reports/tracked")
+    async def api_tracked_report():
+        rows = state.store.run(tracked_presence_report)
+        stats = state.store.run(dashboard_stats)
+        return {
+            "rows": [_tracked_public(r) for r in rows],
+            "on_site": sum(1 for r in rows if r.get("on_site")),
+            "latest_presence_id": int(stats.get("latest_presence_id") or 0),
         }
 
     @app.get("/audio-alerts", response_class=HTMLResponse)
@@ -607,24 +848,53 @@ def create_app(settings: dict[str, Any]) -> FastAPI:
     @app.get("/frigate-media", response_class=HTMLResponse)
     async def frigate_media_page(
         request: Request,
-        ts: float,
+        ts: float | None = None,
         mac: str = "",
+        reviews: str = "",
+        events: str = "",
         from_ts: float | None = None,
         nearest_delta: float | None = None,
         nearest_dir: str = "",
     ):
         fg = _live_frigate(state)
         error = None
+        review_ids = _frigate_id_list(reviews)
+        event_ids = _frigate_id_list(events)
+        incident_mode = bool(review_ids or event_ids)
         try:
-            data = await asyncio.to_thread(
-                frigate_lookup,
-                fg["base_url"],
-                ts,
-                fg["pad_seconds"],
-                None,
-                fg["lead_seconds"],
-                fg.get("disabled_cameras") or [],
-            )
+            if incident_mode:
+                data = await asyncio.to_thread(
+                    frigate_incidents,
+                    fg["base_url"],
+                    review_ids=review_ids,
+                    event_ids=event_ids,
+                    exclude_cameras=fg.get("disabled_cameras") or [],
+                )
+            elif ts is not None:
+                data = await asyncio.to_thread(
+                    frigate_lookup,
+                    fg["base_url"],
+                    ts,
+                    fg["pad_seconds"],
+                    None,
+                    fg["lead_seconds"],
+                    fg.get("disabled_cameras") or [],
+                )
+            else:
+                data = {
+                    "cameras": [],
+                    "events": [],
+                    "reviews": [],
+                    "detection_cameras": [],
+                    "other_cameras": [],
+                    "ts": 0,
+                    "start": 0,
+                    "end": 0,
+                    "pad_seconds": fg["pad_seconds"],
+                    "lead_seconds": fg["lead_seconds"],
+                    "incident_mode": False,
+                }
+                error = "Missing timestamp or Frigate alert id."
         except FrigateError as exc:
             data = {
                 "cameras": [],
@@ -632,14 +902,20 @@ def create_app(settings: dict[str, Any]) -> FastAPI:
                 "reviews": [],
                 "detection_cameras": [],
                 "other_cameras": [],
-                "ts": ts,
-                "start": ts,
-                "end": ts,
-                "pad_seconds": fg["pad_seconds"],
-                "lead_seconds": fg["lead_seconds"],
+                "ts": ts or 0,
+                "start": ts or 0,
+                "end": ts or 0,
+                "pad_seconds": 0 if incident_mode else fg["pad_seconds"],
+                "lead_seconds": 0 if incident_mode else fg["lead_seconds"],
+                "incident_mode": incident_mode,
             }
             error = str(exc)
-        when = datetime.fromtimestamp(ts, tz=timezone.utc)
+        display_ts = data.get("ts") or ts or 0
+        when = (
+            datetime.fromtimestamp(float(display_ts), tz=timezone.utc)
+            if display_ts
+            else None
+        )
         from_local = (
             format_local_time(datetime.fromtimestamp(from_ts, tz=timezone.utc))
             if from_ts
@@ -651,13 +927,14 @@ def create_app(settings: dict[str, Any]) -> FastAPI:
             {
                 "version": __version__,
                 "mac": mac,
-                "local_ts": format_local_time(when),
+                "local_ts": format_local_time(when) if when else "Frigate alert",
                 "error": error,
                 "from_ts": from_ts,
                 "from_local": from_local,
                 "nearest_delta": nearest_delta,
                 "nearest_dir": nearest_dir,
                 **data,
+                "incident_mode": incident_mode,
                 "packet_ts": ts,
             },
         )
@@ -719,6 +996,17 @@ def create_app(settings: dict[str, Any]) -> FastAPI:
         except FrigateError as exc:
             return JSONResponse({"error": str(exc)}, status_code=404)
         return StreamingResponse(iterator, media_type="video/mp4")
+
+    @app.get("/api/frigate/review/{review_id}/preview")
+    async def frigate_review_preview(review_id: str):
+        fg = _live_frigate(state)
+        try:
+            body, ctype = await asyncio.to_thread(
+                review_preview_bytes, fg["base_url"], review_id
+            )
+        except FrigateError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=404)
+        return Response(content=body, media_type=ctype)
 
     @app.get("/api/frigate/clip/{camera}")
     async def frigate_clip(camera: str, start: float, end: float):
@@ -1093,6 +1381,37 @@ def create_app(settings: dict[str, Any]) -> FastAPI:
             headers={"X-TTS-Cache": "hit" if from_cache else "miss", "X-TTS-Path": path},
         )
 
+    @app.get("/api/volume-cues")
+    async def api_volume_cues():
+        cfg = _live_chatterbox(state)
+        if not cfg.get("enabled"):
+            return {"enabled": False, "cues": []}
+        return {
+            "enabled": True,
+            "cues": [
+                {"index": i, "text": text, "url": f"/api/volume-cues/{i}"}
+                for i, text in enumerate(VOLUME_CUE_PHRASES)
+            ],
+        }
+
+    @app.get("/api/volume-cues/{index}")
+    async def api_volume_cue(index: int):
+        if index < 0 or index >= len(VOLUME_CUE_PHRASES):
+            return JSONResponse({"error": "unknown cue"}, status_code=404)
+        cfg = _live_chatterbox(state)
+        if not cfg.get("enabled"):
+            return JSONResponse({"error": "Chatterbox is disabled"}, status_code=400)
+        text = VOLUME_CUE_PHRASES[index]
+        try:
+            audio, ctype, _from_cache, _path = await asyncio.to_thread(speak_text, cfg, text)
+        except ChatterboxError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=502)
+        return Response(
+            content=audio,
+            media_type=ctype,
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+
     @app.get("/api/recordings")
     async def api_recordings():
         cache_dir = str(_tts_cache_dir(state))
@@ -1203,6 +1522,31 @@ def create_app(settings: dict[str, Any]) -> FastAPI:
             return JSONResponse({"error": "alert not found"}, status_code=404)
         return {"ok": True}
 
+    @app.get("/api/sensor-cache")
+    async def api_sensor_cache(name: str = ""):
+        """Packet-cache TTL for a sensor. No secrets. Used when SMB cannot write."""
+        clients = state.store.run(list_clients)
+        needle = name.strip()
+        chosen = None
+        if needle:
+            for client in clients:
+                if str(client.get("name") or "") == needle:
+                    chosen = client
+                    break
+            if not chosen:
+                return JSONResponse({"error": "unknown client"}, status_code=404)
+        else:
+            enabled = [c for c in clients if c.get("enabled")]
+            if len(enabled) != 1:
+                return JSONResponse(
+                    {"error": "name is required when more than one client is enabled"},
+                    status_code=400,
+                )
+            chosen = enabled[0]
+        payload = cache_settings_payload(chosen)
+        payload["name"] = chosen.get("name")
+        return payload
+
     @app.post("/api/clients")
     async def api_add_client(payload: dict[str, Any]):
         name = str(payload.get("name") or "").strip()
@@ -1211,6 +1555,8 @@ def create_app(settings: dict[str, Any]) -> FastAPI:
         enabled = bool(payload.get("enabled", True))
         smb_username = str(payload.get("smb_username") or "").strip()
         smb_password = str(payload.get("smb_password") or "")
+        ttl = payload.get("packet_cache_ttl_seconds")
+        maxsize = payload.get("packet_cache_maxsize")
         if not name or not path:
             return JSONResponse({"error": "name and db_path are required"}, status_code=400)
         try:
@@ -1223,6 +1569,8 @@ def create_app(settings: dict[str, Any]) -> FastAPI:
                     enabled=enabled,
                     smb_username=smb_username,
                     smb_password=smb_password,
+                    packet_cache_ttl_seconds=ttl,
+                    packet_cache_maxsize=maxsize,
                 )
                 log_activity(
                     conn,
@@ -1235,6 +1583,7 @@ def create_app(settings: dict[str, Any]) -> FastAPI:
             client = state.store.run(_add)
         except Exception as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
+        _push_cache_settings(state, client)
         return JSONResponse(public_client(client))
 
     @app.post("/api/clients/{client_id}")
@@ -1259,6 +1608,8 @@ def create_app(settings: dict[str, Any]) -> FastAPI:
                     enabled=payload.get("enabled"),
                     smb_username=payload.get("smb_username"),
                     smb_password=password,
+                    packet_cache_ttl_seconds=payload.get("packet_cache_ttl_seconds"),
+                    packet_cache_maxsize=payload.get("packet_cache_maxsize"),
                 )
                 if client:
                     log_activity(
@@ -1274,6 +1625,17 @@ def create_app(settings: dict[str, Any]) -> FastAPI:
             return JSONResponse({"error": str(exc)}, status_code=400)
         if not client:
             return JSONResponse({"error": "client not found"}, status_code=404)
+        if any(
+            key in payload
+            for key in (
+                "packet_cache_ttl_seconds",
+                "packet_cache_maxsize",
+                "db_path",
+                "smb_username",
+                "smb_password",
+            )
+        ):
+            _push_cache_settings(state, client)
         return JSONResponse(public_client(client))
 
     @app.delete("/api/clients/{client_id}")
@@ -1332,6 +1694,16 @@ def create_app(settings: dict[str, Any]) -> FastAPI:
         q: str = "",
         client_id: str | None = None,
         tag: str = "",
+        friendly: str = "",
+        device_type: str = "",
+        packet_type: str = "",
+        band: str = "",
+        ssid: str = "",
+        signal_min: str = "",
+        signal_max: str = "",
+        hours: str = "",
+        sort: str = "captured",
+        dir: str = Query(""),
         limit: int = 100,
         offset: int = 0,
         after_id: str | None = None,
@@ -1339,15 +1711,28 @@ def create_app(settings: dict[str, Any]) -> FastAPI:
         page_size = max(1, min(limit, 200))
         off = max(0, offset)
         newer_than = _optional_int(after_id)
+        filters = _packet_filters(
+            q=q,
+            client_id=client_id,
+            tag=tag,
+            friendly=friendly,
+            device_type=device_type,
+            packet_type=packet_type,
+            band=band,
+            ssid=ssid,
+            signal_min=signal_min,
+            signal_max=signal_max,
+            hours=hours,
+            sort=sort,
+            sort_dir=dir,
+        )
         packets = state.store.run(
             lambda c: recent_packets(
                 c,
                 limit=page_size,
                 offset=0 if newer_than else off,
-                query=q.strip() or None,
-                client_id=_optional_int(client_id),
-                tag=tag.strip() or None,
                 after_id=newer_than,
+                **filters,
             )
         )
         return JSONResponse(
@@ -1395,6 +1780,35 @@ def create_app(settings: dict[str, Any]) -> FastAPI:
                     conn,
                     f"Marked {label} ({device['mac']}) not friendly",
                     level="warning",
+                    source="devices",
+                )
+            return device
+
+        return JSONResponse(state.store.run(_set))
+
+    @app.post("/api/devices/spoken-name")
+    async def api_set_spoken_name(payload: dict[str, Any]):
+        mac = str(payload.get("mac") or "").strip()
+        if not mac:
+            return JSONResponse({"error": "mac is required"}, status_code=400)
+        phrase = payload.get("spoken_name")
+        if phrase is None:
+            return JSONResponse({"error": "spoken_name is required"}, status_code=400)
+
+        def _set(conn):
+            device = set_spoken_name(conn, mac, str(phrase))
+            label = device.get("name") or device["mac"]
+            spoken = (device.get("spoken_name") or "").strip()
+            if spoken:
+                log_activity(
+                    conn,
+                    f"Spoken name for {label} ({device['mac']}): {spoken}",
+                    source="devices",
+                )
+            else:
+                log_activity(
+                    conn,
+                    f"Cleared spoken name for {label} ({device['mac']})",
                     source="devices",
                 )
             return device

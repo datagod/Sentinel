@@ -68,6 +68,50 @@ def recording_path(text: str, *, settings: dict[str, Any]) -> Path:
     return root / recording_filename(text, settings=settings)
 
 
+def trim_wav_silence(data: bytes, *, threshold: int = 600, pad_ms: int = 15) -> bytes:
+    """Drop leading/trailing near-silence so short cues start on the spoken sound."""
+    if not data or data[:4] != b"RIFF":
+        return data
+    try:
+        with wave.open(io.BytesIO(data), "rb") as src:
+            params = src.getparams()
+            frames = src.readframes(src.getnframes())
+    except wave.Error:
+        return data
+    if params.sampwidth != 2 or params.nchannels < 1 or not frames:
+        return data
+    samples = array.array("h")
+    samples.frombytes(frames)
+    nch = params.nchannels
+    frames_n = len(samples) // nch
+    if frames_n < 8:
+        return data
+
+    def _loud(i: int) -> bool:
+        base = i * nch
+        return any(abs(samples[base + c]) >= threshold for c in range(nch))
+
+    start = 0
+    while start < frames_n and not _loud(start):
+        start += 1
+    end = frames_n - 1
+    while end > start and not _loud(end):
+        end -= 1
+    pad = max(0, int(params.framerate * pad_ms / 1000))
+    start = max(0, start - pad)
+    end = min(frames_n - 1, end + pad)
+    if start <= 0 and end >= frames_n - 1:
+        return data
+    trimmed = samples[start * nch : (end + 1) * nch]
+    if not trimmed:
+        return data
+    out = io.BytesIO()
+    with wave.open(out, "wb") as dst:
+        dst.setparams(params)
+        dst.writeframes(trimmed.tobytes())
+    return out.getvalue()
+
+
 def peak_normalize_wav(data: bytes, *, target_peak: float = 0.89) -> bytes:
     """Boost 16-bit WAV to near full scale so alerts are not whisper-quiet.
 
@@ -122,7 +166,7 @@ def load_cached_recording(text: str, *, settings: dict[str, Any]) -> tuple[bytes
     ext = path.suffix.lower().lstrip(".")
     data = path.read_bytes()
     if ext == "wav":
-        loud = peak_normalize_wav(data)
+        loud = peak_normalize_wav(trim_wav_silence(data))
         if loud != data:
             _write_audio_file(path, loud)
             data = loud
@@ -133,7 +177,7 @@ def save_recording(text: str, audio: bytes, *, settings: dict[str, Any]) -> str:
     """Write audio to localrecordings atomically; return absolute path string."""
     path = recording_path(text, settings=settings)
     if path.suffix.lower() == ".wav":
-        audio = peak_normalize_wav(audio)
+        audio = peak_normalize_wav(trim_wav_silence(audio))
     _write_audio_file(path, audio)
     return str(path)
 
@@ -149,7 +193,7 @@ def normalize_recordings_dir(root: str | Path) -> int:
             original = path.read_bytes()
         except OSError:
             continue
-        loud = peak_normalize_wav(original)
+        loud = peak_normalize_wav(trim_wav_silence(original))
         if loud != original:
             _write_audio_file(path, loud)
             changed += 1

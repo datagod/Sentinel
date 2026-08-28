@@ -74,6 +74,20 @@
               <input class="set-input name-input" value="{{ device.name or '' }}" placeholder="device name">
             </form>
           </dd>
+          <dt>Spoken name</dt>
+          <dd>
+            <form class="spoken-name-form" data-mac="{{ mac }}">
+              <input class="set-input spoken-input" value="{{ device.spoken_name or '' }}"
+                placeholder="How the voice should say this name"
+                maxlength="200"
+                aria-label="Spoken name for voice alerts">
+              <button type="submit" class="btn btn-secondary btn-small">Save</button>
+              <button type="button" class="btn btn-secondary btn-small btn-speak-name"
+                data-mac="{{ mac }}">Hear it</button>
+            </form>
+            <p class="hint" style="margin:0.35rem 0 0">Used as {name} in voice alerts. Example: “Gun Goddess A fifty three”.</p>
+            <p class="hint" id="spoken-status" style="margin:0.25rem 0 0"></p>
+          </dd>
           <dt>Friendly</dt>
           <dd>
             <button type="button" class="btn btn-secondary btn-small btn-set-friendly"

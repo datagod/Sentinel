@@ -12,7 +12,7 @@
 
     <section class="set-panel">
       <h2>Devices</h2>
-      <p class="hint">Tags apply to this MAC and to every packet with that source address, including future pulls. Track a device to watch its signal and hear leave/enter alerts when packets stop for the window set under Settings.</p>
+      <p class="hint">Click a row to edit the device. Tags apply to this MAC and to every packet with that source address, including future pulls. Track a device to watch its signal and hear leave/enter alerts when packets stop for the window set under Settings.</p>
       <form class="filter-bar" method="get" action="/devices">
         <input class="set-input" type="search" name="q" value="{{ q }}" placeholder="MAC, name, vendor, IP, tag…">
         <select class="set-select" name="friendly">
@@ -40,7 +40,7 @@
       </datalist>
       <div class="table-wrap" style="margin-top:0.75rem">
         {% if devices %}
-        <table class="data-table">
+        <table class="data-table" id="devices-table">
           <thead>
             <tr>
               <th></th>
@@ -59,7 +59,7 @@
           </thead>
           <tbody>
             {% for d in devices %}
-            <tr>
+            <tr class="device-row" data-href="/details?mac={{ d.mac }}" tabindex="0">
               <td>
                 {% if d.friendly %}
                 <span class="badge badge-ok"><span class="dot"></span>friendly</span>
@@ -88,7 +88,7 @@
                   <input class="set-input name-input" value="{{ d.name or '' }}" placeholder="device name" aria-label="Friendly name">
                 </form>
               </td>
-              <td><a href="/packets?q={{ d.mac }}">{{ d.mac }}</a></td>
+              <td><a href="/details?mac={{ d.mac }}">{{ d.mac }}</a></td>
               <td class="mono-cell">{% if d.last_signal is not none %}{{ d.last_signal }}{% else %}—{% endif %}</td>
               <td>{{ d.ip_addresses or "—" }}</td>
               <td>{{ d.vendor or "—" }}</td>

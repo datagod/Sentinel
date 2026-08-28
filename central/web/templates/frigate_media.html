@@ -11,7 +11,11 @@
         <img src="/static/img/sentinel-central-icon.svg" alt="" class="brand-icon" width="32" height="32">
         Sentinel Central
       </h1>
+      {% if incident_mode %}
+      <p class="subtitle">Frigate alert/detection footage{% if mac %} · {{ mac }}{% endif %}{% if local_ts %} · {{ local_ts }}{% endif %}{% if start and end and end != start %} – {{ end | localtime }}{% endif %}{% if events %} · {{ events|length }} snapshot{{ '' if events|length == 1 else 's' }}{% endif %}{% if reviews %} · {{ reviews|length }} alert{{ '' if reviews|length == 1 else 's' }}{% endif %}</p>
+      {% else %}
       <p class="subtitle">Frigate footage for {{ local_ts }}{% if mac %} · {{ mac }}{% endif %} · starts {{ lead_seconds }}s early, ±{{ pad_seconds }}s{% if events %} · {{ events|length }} detection{{ '' if events|length == 1 else 's' }}{% endif %}{% if reviews %} · {{ reviews|length }} AI summar{{ 'y' if reviews|length == 1 else 'ies' }}{% endif %}</p>
+      {% endif %}
       {% if from_local %}
       <p class="hint">Nearest detection {{ nearest_dir }} the packet time ({{ from_local }}){% if nearest_delta is not none %} · {{ (nearest_delta / 60)|round(1) }} min away{% endif %}</p>
       {% endif %}
@@ -36,6 +40,9 @@
           </span>
         </div>
         <p class="ai-time">{{ rv.start_time | localtime }}{% if rv.end_time %} – {{ rv.end_time | localtime }}{% endif %}</p>
+        {% if rv.preview %}
+        <img class="camera-shot" src="{{ rv.preview }}" alt="{{ rv.camera }} preview">
+        {% endif %}
         {% if rv.title or rv.summary or rv.scene or rv.observations %}
           {% if rv.title %}<p class="ai-title">{{ rv.title }}</p>{% endif %}
           {% if rv.summary %}<p class="ai-summary">{{ rv.summary }}</p>{% endif %}
@@ -55,18 +62,20 @@
       {% endfor %}
       {% else %}
       <p class="summary-empty">No A.I. Summary</p>
+      {% if not incident_mode and packet_ts %}
       <div class="actions-row" style="margin-top:0.5rem">
         <button type="button" class="btn btn-primary btn-small" id="btn-nearest-event"
           data-ts="{{ packet_ts }}">Nearest event</button>
       </div>
       <p class="hint" id="nearest-status" style="margin-top:0.4rem"></p>
       {% endif %}
+      {% endif %}
     </section>
 
     {% if events %}
     <section class="set-panel" style="margin-bottom:1rem">
       <h2>Detections</h2>
-      <p class="hint">Frigate objects in this window — these cameras are the best match.</p>
+      <p class="hint">{% if incident_mode %}Snapshots and clips for this Frigate alert/detection.{% else %}Frigate objects in this window — these cameras are the best match.{% endif %}</p>
     </section>
     <div class="camera-grid">
       {% for ev in events %}
@@ -144,7 +153,7 @@
     </section>
     {% endif %}
   </div>
-  {% if not reviews %}
+  {% if not reviews and not incident_mode %}
   <script>
     if (window.opener && !document.getElementById("btn-nearest-event")) {
       window.resizeTo(1024, 740);

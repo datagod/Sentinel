@@ -165,18 +165,38 @@ def evaluate_tracked_presence(
         if not mac:
             continue
         snap = last_packet_snapshot(conn, mac)
-        seen = seen_within_minutes(snap.get("capture_date"), minutes, now=now)
+        capture = snap.get("capture_date")
+        seen = seen_within_minutes(capture, minutes, now=now)
         new_presence, event_id = next_presence(device.get("presence"), seen)
+        log_event = None
+        arrived_at = None
+        departed_at = None
+        if event_id == "entered_premises":
+            log_event = "entered"
+            arrived_at = capture
+        elif event_id == "left_premises":
+            log_event = "left"
+            departed_at = capture
+        elif new_presence == "inside":
+            arrived_at = capture
+        else:
+            departed_at = capture
         update_device_presence(
             conn,
             mac,
             presence=new_presence,
             last_signal=snap.get("signal"),
+            arrived_at=arrived_at,
+            departed_at=departed_at,
+            log_event=log_event,
         )
         if not event_id:
             continue
         spec = alerts_by_id.get(event_id) or {}
-        name = str(device.get("name") or snap.get("packet_name") or "").strip() or mac
+        name = (
+            str(device.get("spoken_name") or device.get("name") or snap.get("packet_name") or "").strip()
+            or mac
+        )
         template = str(spec.get("template") or "")
         if event_id == "left_premises" and not template:
             template = "{name} has left the premises."
@@ -203,6 +223,7 @@ def collect_alert_events(
             MAX(p.DeviceType) AS device_type,
             MAX(NULLIF(p.FriendlyName, '')) AS packet_name,
             MAX(d.name) AS device_name,
+            MAX(NULLIF(d.spoken_name, '')) AS spoken_name,
             MAX(IFNULL(d.friendly, 0)) AS friendly,
             SUM(CASE WHEN p.ingested_at >= ? THEN 1 ELSE 0 END) AS new_packets,
             SUM(CASE WHEN p.ingested_at < ? THEN 1 ELSE 0 END) AS prior_packets,
@@ -231,7 +252,9 @@ def collect_alert_events(
 
 def choose_alert(row: dict[str, Any], enabled: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
     mac = str(row.get("mac") or "")
-    name = str(row.get("device_name") or row.get("packet_name") or "").strip()
+    name = str(
+        row.get("spoken_name") or row.get("device_name") or row.get("packet_name") or ""
+    ).strip()
     friendly = bool(row.get("friendly"))
     new = int(row.get("prior_packets") or 0) == 0
     mobile = _is_mobile(row.get("device_type"))

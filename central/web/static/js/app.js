@@ -28,7 +28,9 @@ function applyAlertVolume(value) {
   } catch (_) { /* ignore */ }
   const slider = document.getElementById("alert-volume");
   if (slider) slider.value = String(Math.round(alertVolume * 100));
-  if (currentAlertAudio) currentAlertAudio.volume = alertVolume;
+  if (currentAlertAudio && !currentAlertAudio._volumeCue) {
+    currentAlertAudio.volume = alertVolume;
+  }
 }
 
 function attachAlertVolume(audio) {
@@ -47,9 +49,45 @@ function attachAlertVolume(audio) {
   const slider = document.getElementById("alert-volume");
   if (!slider) return;
   slider.value = String(Math.round(alertVolume * 100));
+
+  let cueUrl = "";
+  let cueAudio = null;
+
+  function playVolumeCue() {
+    if (!cueUrl) return;
+    if (typeof voiceAlertPlaying !== "undefined" && voiceAlertPlaying) return;
+    if (cueAudio && !cueAudio.paused && !cueAudio.ended) return;
+    const audio = new Audio(cueUrl);
+    audio._volumeCue = true;
+    audio.volume = alertVolume;
+    cueAudio = audio;
+    audio.addEventListener("ended", () => {
+      if (cueAudio === audio) cueAudio = null;
+    });
+    audio.addEventListener("error", () => {
+      if (cueAudio === audio) cueAudio = null;
+    });
+    audio.play().catch(() => {});
+  }
+
+  async function prefetchVolumeCue() {
+    try {
+      const res = await fetch("/api/volume-cues");
+      const data = await res.json();
+      const cue = (data.cues || [])[0];
+      if (!data.enabled || !cue) return;
+      const clip = await fetch(cue.url);
+      if (!clip.ok) return;
+      const blob = await clip.blob();
+      if (blob.size > 0) cueUrl = URL.createObjectURL(blob);
+    } catch (_) { /* Chatterbox may be offline */ }
+  }
+
+  slider.addEventListener("pointerdown", playVolumeCue);
   slider.addEventListener("input", () => {
     applyAlertVolume(Number(slider.value) / 100);
   });
+  prefetchVolumeCue();
 })();
 
 async function postJSON(url, body) {
@@ -231,6 +269,10 @@ function resetClientForm() {
     smbPass.placeholder = "leave blank to keep / guest";
   }
   if (enabled) enabled.checked = true;
+  const ttl = document.getElementById("client-cache-ttl-minutes");
+  const maxsize = document.getElementById("client-cache-maxsize");
+  if (ttl) ttl.value = "15";
+  if (maxsize) maxsize.value = "10000";
   if (title) title.textContent = "Add client";
   if (save) save.textContent = "Add client";
   if (cancel) cancel.hidden = true;
@@ -247,6 +289,11 @@ function fillClientForm(btn) {
   smbPass.value = "";
   smbPass.placeholder = btn.dataset.hasPassword === "1" ? "stored — leave blank to keep" : "leave blank for guest";
   document.getElementById("client-enabled").checked = btn.dataset.enabled === "1";
+  const ttlSeconds = Number(btn.dataset.cacheTtl || 900);
+  document.getElementById("client-cache-ttl-minutes").value = String(
+    Math.max(1, Math.round(ttlSeconds / 60))
+  );
+  document.getElementById("client-cache-maxsize").value = btn.dataset.cacheMaxsize || "10000";
   document.getElementById("client-form-title").textContent = "Edit client";
   document.getElementById("btn-save-client").textContent = "Save changes";
   document.getElementById("btn-cancel-edit").hidden = false;
@@ -262,7 +309,17 @@ document.getElementById("btn-save-client")?.addEventListener("click", async () =
   const smb_username = document.getElementById("client-smb-username").value.trim();
   const smb_password = document.getElementById("client-smb-password").value;
   const enabled = document.getElementById("client-enabled").checked;
-  const payload = { name, db_path, notes, enabled, smb_username };
+  const ttlMinutes = Number(document.getElementById("client-cache-ttl-minutes")?.value || 15);
+  const cacheMaxsize = Number(document.getElementById("client-cache-maxsize")?.value || 10000);
+  const payload = {
+    name,
+    db_path,
+    notes,
+    enabled,
+    smb_username,
+    packet_cache_ttl_seconds: Math.max(1, Math.round(ttlMinutes)) * 60,
+    packet_cache_maxsize: cacheMaxsize,
+  };
   if (smb_password) payload.smb_password = smb_password;
   try {
     if (id) {
@@ -323,11 +380,17 @@ async function setTracked(mac, tracked) {
 document.addEventListener("click", async (ev) => {
   const film = ev.target.closest(".btn-film");
   if (film) {
+    const reviews = (film.dataset.reviews || "").trim();
+    const events = (film.dataset.events || "").trim();
     const ts = film.dataset.ts;
-    if (!ts) return;
-    const mac = encodeURIComponent(film.dataset.mac || "");
+    if (!reviews && !events && !ts) return;
+    const params = new URLSearchParams();
+    if (reviews) params.set("reviews", reviews);
+    if (events) params.set("events", events);
+    if (ts) params.set("ts", ts);
+    if (film.dataset.mac) params.set("mac", film.dataset.mac);
     window.open(
-      `/frigate-media?ts=${encodeURIComponent(ts)}&mac=${mac}`,
+      `/frigate-media?${params.toString()}`,
       "sentinel-frigate",
       "width=1280,height=900,scrollbars=yes,resizable=yes"
     );
@@ -397,6 +460,98 @@ document.querySelectorAll(".friendly-name-form").forEach((form) => {
   });
 });
 
+async function saveSpokenName(mac, spokenName) {
+  return postJSON("/api/devices/spoken-name", { mac, spoken_name: spokenName });
+}
+
+document.querySelectorAll(".spoken-name-form").forEach((form) => {
+  const input = form.querySelector(".spoken-input");
+  const save = async () => {
+    const spoken = (input?.value || "").trim();
+    try {
+      await saveSpokenName(form.dataset.mac, spoken);
+      if (input) input.defaultValue = spoken;
+      setStatus("spoken-status", spoken ? "Spoken name saved." : "Spoken name cleared.", true);
+      await refreshActivityLog();
+    } catch (err) {
+      setStatus("spoken-status", err.message, false);
+    }
+  };
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    await save();
+  });
+  input?.addEventListener("blur", () => {
+    if (input.value.trim() !== (input.defaultValue || "").trim()) save();
+  });
+});
+
+document.querySelectorAll(".btn-speak-name").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    const form = btn.closest(".spoken-name-form");
+    const input = form?.querySelector(".spoken-input");
+    const spoken = (input?.value || "").trim();
+    const fallback = document.querySelector(".friendly-name-form .name-input")?.value.trim() || "";
+    const name = spoken || fallback;
+    if (!name) {
+      setStatus("spoken-status", "Enter a spoken name first.", false);
+      return;
+    }
+    btn.disabled = true;
+    setStatus("spoken-status", "Speaking…", true);
+    try {
+      if (spoken && spoken !== (input?.defaultValue || "").trim()) {
+        await saveSpokenName(form.dataset.mac, spoken);
+        if (input) input.defaultValue = spoken;
+      }
+      const res = await fetch("/api/settings/chatterbox/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: name }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || res.statusText);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = attachAlertVolume(new Audio(url));
+      audio.addEventListener("ended", () => URL.revokeObjectURL(url));
+      await audio.play();
+      setStatus("spoken-status", "Played spoken name.", true);
+    } catch (err) {
+      setStatus("spoken-status", err.message, false);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+});
+
+function packetQueryParams(table) {
+  const params = new URLSearchParams();
+  if (!table) return params;
+  const map = {
+    q: "q",
+    clientId: "client_id",
+    tag: "tag",
+    friendly: "friendly",
+    deviceType: "device_type",
+    packetType: "packet_type",
+    band: "band",
+    ssid: "ssid",
+    signalMin: "signal_min",
+    signalMax: "signal_max",
+    hours: "hours",
+    sort: "sort",
+    dir: "dir",
+  };
+  Object.entries(map).forEach(([ds, query]) => {
+    const value = table.dataset[ds];
+    if (value) params.set(query, value);
+  });
+  return params;
+}
+
 function packetRowHtml(p) {
   const mac = p.SourceMAC || "";
   const friendly = Number(p.device_friendly) === 1;
@@ -455,13 +610,9 @@ function packetRowHtml(p) {
       status.hidden = false;
       status.textContent = "Loading more packets…";
     }
-    const params = new URLSearchParams({
-      offset: String(offset),
-      limit: String(pageSize),
-    });
-    if (table.dataset.q) params.set("q", table.dataset.q);
-    if (table.dataset.clientId) params.set("client_id", table.dataset.clientId);
-    if (table.dataset.tag) params.set("tag", table.dataset.tag);
+    const params = packetQueryParams(table);
+    params.set("offset", String(offset));
+    params.set("limit", String(pageSize));
     try {
       const res = await fetch(`/api/packets?${params.toString()}`);
       const data = await res.json();
@@ -770,6 +921,28 @@ document.querySelectorAll(".alert-min-packets, .alert-window-minutes, .alert-qui
   };
   input.addEventListener("change", save);
 });
+
+(function setupDeviceRowLinks() {
+  const table = document.getElementById("devices-table");
+  if (!table) return;
+  const interactive = "a, button, input, label, select, textarea, form, .switch, .tag-chip, .tag-add";
+  const go = (row) => {
+    const href = row?.dataset.href;
+    if (href) window.location.href = href;
+  };
+  table.addEventListener("click", (ev) => {
+    if (ev.target.closest(interactive)) return;
+    go(ev.target.closest("tr.device-row"));
+  });
+  table.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Enter" && ev.key !== " ") return;
+    if (ev.target.closest(interactive)) return;
+    const row = ev.target.closest("tr.device-row");
+    if (!row) return;
+    ev.preventDefault();
+    go(row);
+  });
+})();
 
 document.querySelectorAll(".device-track").forEach((input) => {
   input.addEventListener("change", async () => {
@@ -1133,6 +1306,32 @@ document.querySelectorAll(".btn-delete").forEach((btn) => {
   loadRecordings(true);
 })();
 
+function trackedRowHtml(d) {
+  const mac = d.mac || "";
+  const onSite = !!d.on_site;
+  const status = onSite
+    ? `<span class="badge badge-ok"><span class="dot"></span>on site</span>`
+    : `<span class="badge badge-muted"><span class="dot"></span>away</span>`;
+  const name = escapeHtml(d.name || "—");
+  const friendly = d.friendly
+    ? ` <span class="badge badge-ok">friendly</span>`
+    : "";
+  const signal = d.last_signal != null && d.last_signal !== "" ? escapeHtml(d.last_signal) : "—";
+  const duration = `${escapeHtml(d.duration_label || "—")} ${escapeHtml(d.duration_kind || "")}`.trim();
+  return `<tr class="${onSite ? "row-on-site" : "row-away"}">
+    <td>${status}</td>
+    <td><a href="/devices?q=${encodeURIComponent(mac)}">${name}</a>${friendly}</td>
+    <td><a href="/packets?q=${encodeURIComponent(mac)}">${escapeHtml(mac)}</a></td>
+    <td>${escapeHtml(d.arrived_local || "—")}</td>
+    <td>${onSite ? "—" : escapeHtml(d.departed_local || "—")}</td>
+    <td>${duration}</td>
+    <td>${escapeHtml(d.last_seen_local || "—")}</td>
+    <td class="mono-cell">${signal}</td>
+    <td>${escapeHtml(d.visits || 0)}</td>
+    <td>${escapeHtml(d.device_type || "—")}</td>
+  </tr>`;
+}
+
 function reportRowHtml(d) {
   const mac = d.mac || "";
   const type = d.device_type || "";
@@ -1173,12 +1372,15 @@ function reportRowHtml(d) {
   const packetTbody = document.getElementById("packet-tbody");
   const reportTable = document.getElementById("report-table");
   const reportTbody = document.getElementById("report-tbody");
+  const trackedTable = document.getElementById("tracked-table");
+  const trackedTbody = document.getElementById("tracked-tbody");
   const onPackets = location.pathname === "/packets" || location.pathname === "/packets/";
   const onReports = location.pathname === "/reports" || location.pathname === "/reports/";
   if (!onPackets && !onReports && !document.getElementById("header-status")) return;
 
   let packetNewest = Number(packetTable?.dataset.newestId || 0);
   let reportNewest = Number(reportTable?.dataset.newestId || 0);
+  let presenceNewest = Number(trackedTable?.dataset.newestId || 0);
   let inflight = false;
 
   async function prependNewPackets(afterId) {
@@ -1186,13 +1388,9 @@ function reportRowHtml(d) {
       location.reload();
       return 0;
     }
-    const params = new URLSearchParams({
-      after_id: String(afterId),
-      limit: packetTable.dataset.pageSize || "100",
-    });
-    if (packetTable.dataset.q) params.set("q", packetTable.dataset.q);
-    if (packetTable.dataset.clientId) params.set("client_id", packetTable.dataset.clientId);
-    if (packetTable.dataset.tag) params.set("tag", packetTable.dataset.tag);
+    const params = packetQueryParams(packetTable);
+    params.set("after_id", String(afterId));
+    params.set("limit", packetTable.dataset.pageSize || "100");
     const res = await fetch(`/api/packets?${params.toString()}`);
     const data = await res.json();
     const rows = data.packets || [];
@@ -1224,6 +1422,28 @@ function reportRowHtml(d) {
     reportTbody.innerHTML = rows.map(reportRowHtml).join("");
   }
 
+  async function refreshTracked() {
+    if (!trackedTable || !trackedTbody) return;
+    const res = await fetch("/api/reports/tracked");
+    const data = await res.json();
+    const rows = data.rows || [];
+    const onSite = Number(data.on_site || 0);
+    const count = document.getElementById("tracked-count");
+    if (count) {
+      count.textContent = `${rows.length} tracked · ${onSite} on site`;
+    }
+    if (!rows.length) {
+      trackedTbody.innerHTML =
+        `<tr id="tracked-empty-row"><td colspan="10" class="summary-empty">No devices are being tracked. Turn on Track on the Devices page.</td></tr>`;
+      return;
+    }
+    trackedTbody.innerHTML = rows.map(trackedRowHtml).join("");
+    if (data.latest_presence_id != null) {
+      trackedTable.dataset.newestId = String(data.latest_presence_id);
+      presenceNewest = Number(data.latest_presence_id || 0);
+    }
+  }
+
   async function pollLive() {
     if (inflight || document.hidden) return;
     inflight = true;
@@ -1233,7 +1453,10 @@ function reportRowHtml(d) {
       const data = await res.json();
       applyHeaderStats(data.stats, data.interval);
       const latest = Number(data.stats?.latest_packet_id || 0);
-      if (onPackets && packetTable && latest > packetNewest) {
+      const defaultSort =
+        (packetTable?.dataset.sort || "captured") === "captured" &&
+        (packetTable?.dataset.dir || "desc") === "desc";
+      if (onPackets && packetTable && latest > packetNewest && defaultSort) {
         await prependNewPackets(packetNewest);
         packetNewest = latest;
         packetTable.dataset.newestId = String(latest);
@@ -1242,6 +1465,9 @@ function reportRowHtml(d) {
         await refreshReports();
         reportNewest = latest;
         reportTable.dataset.newestId = String(latest);
+      }
+      if (onReports && trackedTable) {
+        await refreshTracked();
       }
     } catch (_) {
       /* ignore polling errors */
